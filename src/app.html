@@ -1,4 +1,4 @@
-<title>Kumi 冊子組版</title>
+<title>Thinbook</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -106,7 +106,7 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
 
 <div id="app">
   <header>
-    <span class="logo">Kumi</span>
+    <span class="logo">Thinbook</span>
     <div class="grp"><button id="bNew">新規</button><button id="bOpen">開く</button><button id="bSave">保存</button></div>
     <div class="grp"><button id="bUndo" title="取り消し Ctrl+Z" aria-label="取り消し">↶</button><button id="bRedo" title="やり直し Ctrl+Shift+Z" aria-label="やり直し">↷</button></div>
     <div class="grp"><button id="bZo" aria-label="縮小">−</button><span id="zoomLbl">100%</span><button id="bZi" aria-label="拡大">＋</button><button id="bGuide" class="on">ガイド</button></div>
@@ -173,7 +173,7 @@ function imageItem(o){return Object.assign({id:uid(),type:'image',x:0,y:0,w:40,h
 function sampleDoc(){
   const d=newDoc({kind:'body',name:'サンプル',w:148,h:210,binding:'right',color:'mono',pages:8});
   S.doc=d;
-  const t='縦書き本文の組版確認用テキストです。句読点「、」「。」の位置、二重かぎ括弧『』、長音ー、三点リーダ……、ダッシュ――の向きを確認できます。\n数字は2桁まで縦中横になります（例：12月31日）。英単語 Kumi は90度回転して組まれます。\n行頭に句読点が来る場合はぶら下げ、閉じ括弧は追い出しで処理します。';
+  const t='縦書き本文の組版確認用テキストです。句読点「、」「。」の位置、二重かぎ括弧『』、長音ー、三点リーダ……、ダッシュ――の向きを確認できます。\n数字は2桁まで縦中横になります（例：12月31日）。英単語 Thinbook は90度回転して組まれます。\n行頭に句読点が来る場合はぶら下げ、閉じ括弧は追い出しで処理します。';
   const m0=margBox(0);
   d.pages[0].items.push(textItem({x:m0.x+m0.w-30,y:m0.y+20,w:24,h:120,text:'サンプル本',font:'Shippori Mincho',weight:700,size:28,leading:120,track:100}));
   const m1=margBox(1);
@@ -455,15 +455,15 @@ function restore(j){S.last=j;S.doc=JSON.parse(j);if(S.sel&&!findItem(S.sel))S.se
 function undo(){if(!S.undo.length)return;S.redo.push(S.last);restore(S.undo.pop())}
 function redo(){if(!S.redo.length)return;S.undo.push(S.last);restore(S.redo.pop())}
 function resetHistory(){S.undo=[];S.redo=[];S.last=JSON.stringify(S.doc);afterChange()}
-function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('kumi',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('thinbook',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
 async function kvSet(k,v){try{const db=await idb();await new Promise((res,rej)=>{const t=db.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=res;t.onerror=()=>rej(t.error)})}catch(e){}}
 async function kvGet(k){try{const db=await idb();return await new Promise((res,rej)=>{const t=db.transaction('kv','readonly');const r=t.objectStore('kv').get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}catch(e){return null}}
 function projectData(){const used=new Set();S.doc.pages.forEach(p=>p.items.forEach(it=>{if(it.imageId)used.add(it.imageId)}));
   const images={};for(const id of used){const im=S.images[id];if(im)images[id]={src:im.src,w:im.w,h:im.h,name:im.name||''}}
-  return{app:'kumi',version:1,doc:S.doc,images}}
+  return{app:'thinbook',version:1,doc:S.doc,images}}
 function autosave(){kvSet('project',projectData())}
 async function loadProject(p){
-  if(!p||p.app!=='kumi'||!p.doc)throw new Error('Kumiのプロジェクトファイルではありません');
+  if(!p||!['thinbook','kumi'].includes(p.app)||!p.doc)throw new Error('Thinbookのプロジェクトファイルではありません');
   S.images={};
   await Promise.all(Object.entries(p.images||{}).map(([id,m])=>new Promise(res=>{const img=new Image();img.onload=()=>{S.images[id]={...m,img};res()};img.onerror=res;img.src=m.src})));
   S.doc=p.doc;S.sel=null;S.page=0;fitZoom();rebuild();renderAll();resetHistory();
@@ -724,7 +724,7 @@ $('#bNew').onclick=()=>{
 };
 $('#bOpen').onclick=()=>$('#fOpen').click();
 $('#fOpen').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{await loadProject(JSON.parse(await f.text()));toast('開きました：'+f.name)}catch(err){toast(err.message||'開けませんでした')}});
-function saveProject(){const j=JSON.stringify(projectData());saveFile((S.doc.name||'無題')+'.kumi.json',new Blob([j],{type:'application/json'}))}
+function saveProject(){const j=JSON.stringify(projectData());saveFile((S.doc.name||'無題')+'.thinbook.json',new Blob([j],{type:'application/json'}))}
 $('#bSave').onclick=saveProject;
 
 /* ---------- PDF export ---------- */
@@ -743,7 +743,7 @@ $('#bExport').onclick=()=>{
   $('#x-cancel').onclick=()=>{if(exporting){exporting='cancel';return}closeModal()};
   $('#x-go').onclick=async()=>{
     const opt={marks:$('#x-marks').value==='1',dpi:+$('#x-dpi').value,range:$('#x-range').value==='cur'?[S.page]:d.pages.map((_,i)=>i)};
-    let name=$('#x-name').value.trim()||'kumi.pdf';if(!/\.pdf$/i.test(name))name+='.pdf';
+    let name=$('#x-name').value.trim()||'thinbook.pdf';if(!/\.pdf$/i.test(name))name+='.pdf';
     $('#x-go').disabled=true;$('#x-prog').hidden=false;exporting=true;
     try{const blob=await exportPDF(opt,(k,t,msg)=>{$('#x-prog').firstChild.style.width=(k/t*100)+'%';$('#x-msg').textContent=msg});
       if(blob){$('#x-msg').textContent=`完了：${(blob.size/1048576).toFixed(1)}MB`;await saveFile(name,blob)}else $('#x-msg').textContent='中止しました'}
@@ -800,7 +800,7 @@ async function exportPDF(opt,progress){
   obj(1,'<< /Type /Catalog /Pages 2 0 R /OutputIntents [3 0 R] >>');
   obj(2,`<< /Type /Pages /Kids [${kids.map(x=>x+' 0 R').join(' ')}] /Count ${kids.length} >>`);
   obj(3,'<< /Type /OutputIntent /S /GTS_PDFX /OutputConditionIdentifier (JC200103) /OutputCondition (Japan Color 2001 Coated) /RegistryName (http://www.color.org) /Info (Japan Color 2001 Coated) >>');
-  obj(4,`<< /Title ${pdfStr(d.name||'無題')} /Creator (Kumi) /Producer (Kumi) /CreationDate (${dt}) /ModDate (${dt}) /GTS_PDFXVersion (PDF/X-1:2001) /GTS_PDFXConformance (PDF/X-1a:2001) /Trapped /False >>`);
+  obj(4,`<< /Title ${pdfStr(d.name||'無題')} /Creator (Thinbook) /Producer (Thinbook) /CreationDate (${dt}) /ModDate (${dt}) /GTS_PDFXVersion (PDF/X-1:2001) /GTS_PDFXConformance (PDF/X-1a:2001) /Trapped /False >>`);
   const xref=len,N=id;let x=`xref\n0 ${N}\n0000000000 65535 f \n`;for(let j=1;j<N;j++)x+=String(offs[j]).padStart(10,'0')+' 00000 n \n';
   const fid=[...crypto.getRandomValues(new Uint8Array(16))].map(v=>v.toString(16).padStart(2,'0')).join('');
   push(x+`trailer\n<< /Size ${N} /Root 1 0 R /Info 4 0 R /ID [<${fid}> <${fid}>] >>\nstartxref\n${xref}\n%%EOF\n`);
@@ -816,5 +816,5 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>
   try{if(saved&&saved.doc){await loadProject(saved);return}}catch(e){}
   S.doc=sampleDoc();fitZoom();rebuild();renderAll();resetHistory();
 })();
-window.__kumi={S,exportPDF,preflight,layout};
+window.__thinbook={S,exportPDF,preflight,layout};
 </script>
