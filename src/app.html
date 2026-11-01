@@ -83,6 +83,21 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
 .badge{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;background:var(--danger);color:var(--paper);font-size:10px;line-height:16px;font-family:var(--num)}
 .badge.w{background:var(--warn)}
 .ok{color:var(--sub)}
+.themes{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}
+.th{display:flex;flex-direction:column;gap:4px;padding:5px;text-align:left;font-size:12px}
+.th.on{background:var(--bg);color:var(--ink);border-color:var(--accent);outline:1px solid var(--accent)}
+.sw{display:block;position:relative;aspect-ratio:16/9;border:1px solid var(--line);overflow:hidden}
+.sw i{position:absolute;left:0;top:0;bottom:0;width:9%}
+.sw b{position:absolute;left:20%;top:50%;transform:translateY(-50%);font-size:15px;line-height:1}
+.lays{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.lay{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px;font-size:11px}
+.lay canvas{width:100%;aspect-ratio:16/9;border:1px solid var(--line);display:block}
+.lay.on{background:var(--bg);color:var(--ink);border-color:var(--accent);outline:1px solid var(--accent)}
+.dlg.wide{width:min(640px,100%)}
+textarea.outline{width:100%;min-height:260px;resize:vertical;line-height:1.6;font-family:var(--ui)}
+.hint{font-size:11px;color:var(--sub)}
+.aiask{display:flex;gap:6px}
+.aiask input{flex:1}
 #modal{position:fixed;inset:0;background:rgba(21,24,28,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 #modal[hidden]{display:none!important}
 .dlg{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:16px;width:min(420px,100%);display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow:auto}
@@ -111,6 +126,8 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
     <div class="grp"><button id="bUndo" title="取り消し Ctrl+Z" aria-label="取り消し">↶</button><button id="bRedo" title="やり直し Ctrl+Shift+Z" aria-label="やり直し">↷</button></div>
     <div class="grp"><button id="bZo" aria-label="縮小">−</button><span id="zoomLbl">100%</span><button id="bZi" aria-label="拡大">＋</button><button id="bGuide" class="on">ガイド</button></div>
     <span id="docInfo"></span>
+    <button id="bOutline" hidden>構成</button>
+    <button id="bPptx">PPTX書き出し</button>
     <button id="bExport" class="primary">PDF書き出し</button>
   </header>
   <aside id="left">
@@ -119,8 +136,9 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
       <button data-tool="text" title="T">文字</button>
       <button data-tool="image" title="I">画像</button>
       <button data-tool="rect" title="R">図形</button>
+      <button data-tool="video" title="M">動画</button>
     </div>
-    <div class="ph"><span>ページ</span><span class="grp"><button id="bAddP" aria-label="ページ追加">＋</button><button id="bDelP" aria-label="ページ削除">−</button></span></div>
+    <div class="ph"><span id="pLbl">ページ</span><span class="grp"><button id="bAddP" aria-label="ページ追加">＋</button><button id="bDelP" aria-label="ページ削除">−</button></span></div>
     <div id="pages"></div>
   </aside>
   <main id="stage"><div id="spreads"></div></main>
@@ -137,8 +155,9 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
 </div>
 <div id="modal" hidden></div>
 <div id="toast" hidden></div>
-<input type="file" id="fOpen" accept=".json,application/json" hidden>
+<input type="file" id="fOpen" accept=".json,application/json,.pptx" hidden>
 <input type="file" id="fImg" accept="image/*" hidden>
+<input type="file" id="fVid" accept="video/*" hidden>
 
 <script>
 'use strict';
@@ -151,7 +170,7 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const r1=v=>Math.round(v*10)/10;
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-const S={doc:null,images:{},page:0,sel:null,tool:'select',zoom:1,s:PX,guides:true,undo:[],redo:[],last:'',pageEls:[],thumbEls:[],dirty:new Set(),tdirty:new Set(),visible:new Set(),drag:null,tab:'props'};
+const S={doc:null,images:{},media:{},page:0,sel:null,tool:'select',zoom:1,s:PX,guides:true,undo:[],redo:[],last:'',pageEls:[],thumbEls:[],dirty:new Set(),tdirty:new Set(),visible:new Set(),drag:null,tab:'props'};
 
 /* ---------- document ---------- */
 function pw(d){return d.kind==='cover'?d.trimW*2+d.spine:d.trimW}
@@ -168,6 +187,7 @@ function margBox(i){const d=S.doc,m=d.margins,W=pw(d),H=d.trimH;
   const L=isLeft(i);const l=L?m.outer:m.inner,r=L?m.inner:m.outer;return{x:l,y:m.top,w:W-l-r,h:H-m.top-m.bottom}}
 function textItem(o){return Object.assign({id:uid(),type:'text',x:0,y:0,w:50,h:50,text:'',font:'Noto Serif JP',weight:400,size:9,leading:175,track:0,dir:S.doc&&S.doc.binding==='left'?'h':'v',align:'start',color:{c:0,m:0,y:0,k:100}},o)}
 function rectItem(o){return Object.assign({id:uid(),type:'rect',x:0,y:0,w:30,h:30,fill:{c:0,m:0,y:0,k:20},stroke:null,sw:0.3},o)}
+function videoItem(o){return Object.assign({id:uid(),type:'video',x:0,y:0,w:80,h:45,mediaId:null,posterId:null,fit:'contain'},o)}
 function imageItem(o){return Object.assign({id:uid(),type:'image',x:0,y:0,w:40,h:40,imageId:null,fit:'cover'},o)}
 
 function sampleDoc(){
@@ -224,7 +244,7 @@ function units(str,it,V){
   return out;
 }
 function layout(it){
-  const key=[it.text,it.font,it.weight,it.size,it.leading,it.track,it.dir,it.align,it.w,it.h].join('\u0001');
+  const key=[it.text,it.font,it.weight,it.size,it.leading,it.track,it.dir,it.align,it.w,it.h,it.anchor].join('\u0001');
   const old=lcache.get(it.id);if(old&&old.key===key)return old;
   const V=it.dir==='v',sz=it.size*PT,pitch=Math.max(0.1,sz*it.leading/100);
   const lim=V?it.h:it.w,across=V?it.w:it.h;
@@ -264,6 +284,7 @@ function layout(it){
       glyphs.push(g);p+=u.adv;
     }
   }
+  if(!V&&n&&(it.anchor==='ctr'||it.anchor==='b')){const used=sz+(n-1)*pitch,off=Math.max(0,it.anchor==='ctr'?(across-used)/2:across-used);if(off){for(const g of glyphs)g.y+=off;if(by1>by0){by0+=off;by1+=off}}}
   const L={key,glyphs,overflow:lines.length>maxLines,bbox:bx1>bx0?{x0:bx0,y0:by0,x1:bx1,y1:by1}:null};
   lcache.set(it.id,L);return L;
 }
@@ -301,6 +322,8 @@ function drawText(ctx,it,ch,preview){
   if(preview&&L.overflow){const q=2.2;ctx.fillStyle=TOK.danger;ctx.fillRect(it.x+it.w-q,it.y+it.h-q,q,q)}
 }
 function drawItem(ctx,it,ch,preview){
+  if(it.type==='video'){drawItem(ctx,{...it,type:'image',imageId:it.posterId},ch,preview);if(preview&&it.mediaId){const r=Math.min(it.w,it.h)*0.14,cx=it.x+it.w/2,cy=it.y+it.h/2;
+    ctx.save();ctx.fillStyle=TOK.accent;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fill();ctx.fillStyle=TOK.paper;ctx.beginPath();ctx.moveTo(cx-r*0.35,cy-r*0.5);ctx.lineTo(cx+r*0.55,cy);ctx.lineTo(cx-r*0.35,cy+r*0.5);ctx.closePath();ctx.fill();ctx.restore()}return}
   if(it.type==='rect'){
     if(it.fill){ctx.fillStyle=col(it.fill,ch);ctx.fillRect(it.x,it.y,it.w,it.h)}
     if(it.stroke&&it.sw>0){ctx.strokeStyle=col(it.stroke,ch);ctx.lineWidth=it.sw;ctx.strokeRect(it.x,it.y,it.w,it.h)}
@@ -308,7 +331,7 @@ function drawItem(ctx,it,ch,preview){
     const im=it.imageId&&S.images[it.imageId];
     if(im&&im.img){
       const sc=it.fit==='contain'?Math.min(it.w/im.w,it.h/im.h):Math.max(it.w/im.w,it.h/im.h);
-      const dw=im.w*sc,dh=im.h*sc;
+      const dw=it.fit==='stretch'?it.w:im.w*sc,dh=it.fit==='stretch'?it.h:im.h*sc;
       ctx.save();ctx.beginPath();ctx.rect(it.x,it.y,it.w,it.h);ctx.clip();
       ctx.imageSmoothingQuality='high';
       ctx.drawImage(ch?sepCanvas(it.imageId,ch):im.img,it.x+(it.w-dw)/2,it.y+(it.h-dh)/2,dw,dh);ctx.restore();
@@ -352,7 +375,7 @@ function drawGuides(ctx,i){
 }
 function drawPage(ctx,i,o){
   const d=S.doc,b=d.bleed,W=pw(d),H=d.trimH,pg=d.pages[i];
-  ctx.fillStyle='#ffffff';ctx.fillRect(-b,-b,W+2*b,H+2*b);
+  ctx.fillStyle=pg.bg?col(pg.bg,o.ch):'#ffffff';ctx.fillRect(-b,-b,W+2*b,H+2*b);
   ctx.save();ctx.beginPath();ctx.rect(-b,-b,W+2*b,H+2*b);ctx.clip();
   for(const it of pg.items)drawItem(ctx,it,o.ch,o.preview);
   drawNombre(ctx,i,o.ch);
@@ -376,7 +399,7 @@ function drawMarks(ctx,W,H,b,ext,ch){
 
 /* ---------- view ---------- */
 const spreadsEl=$('#spreads'),pagesEl=$('#pages'),stage=$('#stage');
-function spreadsOf(d){if(d.kind==='cover')return[[0]];const n=d.pages.length,sp=[[0]];for(let i=1;i<n;i+=2)sp.push(i+1<n?[i,i+1]:[i]);return sp}
+function spreadsOf(d){if(d.kind==='cover')return[[0]];if(d.kind==='slide')return d.pages.map((_,i)=>[i]);const n=d.pages.length,sp=[[0]];for(let i=1;i<n;i+=2)sp.push(i+1<n?[i,i+1]:[i]);return sp}
 const io=new IntersectionObserver(es=>{for(const e of es){const i=+e.target.dataset.i;if(e.isIntersecting){S.visible.add(i);S.dirty.add(i)}else S.visible.delete(i)}schedule()},{root:stage,rootMargin:'300px'});
 function rebuild(){
   const d=S.doc,b=d.bleed,W=pw(d),H=d.trimH;S.s=PX*S.zoom;
@@ -385,8 +408,8 @@ function rebuild(){
   for(const pair of spreadsOf(d)){
     const row=document.createElement('div');row.className='spread';
     const trow=document.createElement('div');trow.className='tsp';
-    const slots=d.kind==='cover'?[[pair[0]]]:[[],[]];
-    if(d.kind!=='cover')for(const i of pair)slots[isLeft(i)?0:1].push(i);
+    const slots=d.kind!=='body'?[[pair[0]]]:[[],[]];
+    if(d.kind==='body')for(const i of pair)slots[isLeft(i)?0:1].push(i);
     for(const sl of slots){
       const s=document.createElement('div');s.className='slot';s.style.minWidth=pwpx+'px';
       const ts=document.createElement('div');ts.className='tslot';ts.style.minWidth=Math.round(W*tS)+'px';
@@ -402,10 +425,12 @@ function rebuild(){
     }
     spreadsEl.append(row);pagesEl.append(trow);
   }
-  $('#zoomLbl').textContent=Math.round(S.zoom*100)+'%';
+  $('#zoomLbl').textContent=Math.round(S.zoom*100)+'%';$('#pLbl').textContent=d.kind==='slide'?'スライド':'ページ';
   updateInfo();schedule();
 }
-function updateInfo(){const d=S.doc;const sz=Object.entries(SIZES).find(([k,v])=>v[0]===d.trimW&&v[1]===d.trimH);
+function updateInfo(){const d=S.doc;const sl=d.kind==='slide';$('#bOutline').hidden=!sl;$('#bPptx').classList.toggle('primary',sl);$('#bExport').classList.toggle('primary',!sl);
+  if(sl){$('#docInfo').textContent=[d.name,'スライド 16:9',(THEMES[d.theme]||{}).name,d.pages.length+'枚'].filter(Boolean).join(' ・ ');return}
+  const sz=Object.entries(SIZES).find(([k,v])=>v[0]===d.trimW&&v[1]===d.trimH);
   $('#docInfo').textContent=[d.name,(d.kind==='cover'?'表紙 ':'')+(sz?sz[0]+' ':'')+d.trimW+'×'+d.trimH+'mm'+(d.kind==='cover'?' 背幅'+d.spine+'mm':''),d.binding==='right'?'右綴じ':'左綴じ',d.color==='mono'?'モノクロ':'カラー',d.kind==='cover'?'':d.pages.length+'ページ'].filter(Boolean).join(' ・ ')}
 let raf=0,tthumb=0;
 function schedule(){if(!raf)raf=requestAnimationFrame(flush)}
@@ -458,13 +483,15 @@ function resetHistory(){S.undo=[];S.redo=[];S.last=JSON.stringify(S.doc);afterCh
 function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('thinbook',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
 async function kvSet(k,v){try{const db=await idb();await new Promise((res,rej)=>{const t=db.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=res;t.onerror=()=>rej(t.error)})}catch(e){}}
 async function kvGet(k){try{const db=await idb();return await new Promise((res,rej)=>{const t=db.transaction('kv','readonly');const r=t.objectStore('kv').get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}catch(e){return null}}
-function projectData(){const used=new Set();S.doc.pages.forEach(p=>p.items.forEach(it=>{if(it.imageId)used.add(it.imageId)}));
+function projectData(file){const used=new Set(),mu=new Set();S.doc.pages.forEach(p=>p.items.forEach(it=>{if(it.imageId)used.add(it.imageId);if(it.posterId)used.add(it.posterId);if(it.mediaId)mu.add(it.mediaId)}));
   const images={};for(const id of used){const im=S.images[id];if(im)images[id]={src:im.src,w:im.w,h:im.h,name:im.name||''}}
-  return{app:'thinbook',version:1,doc:S.doc,images}}
+  const o={app:'thinbook',version:1,doc:S.doc,images};if(S.doc.pptx&&S.pptxSrc)o.pptxSrc=file?u8b64(S.pptxSrc):S.pptxSrc;
+  o.media={};for(const id of mu){const m=S.media[id];if(m)o.media[id]={blob:m.blob,name:m.name,type:m.type}}return o}
 function autosave(){kvSet('project',projectData())}
 async function loadProject(p){
   if(!p||!['thinbook','kumi'].includes(p.app)||!p.doc)throw new Error('Thinbookのプロジェクトファイルではありません');
-  S.images={};
+  S.media={};for(const [id,m] of Object.entries(p.media||{})){const blob=m.blob||(m.data?new Blob([b64u8(m.data)],{type:m.type}):null);if(blob)S.media[id]={blob,name:m.name,type:m.type}}
+  S.images={};S.pptxSrc=p.pptxSrc?(typeof p.pptxSrc==='string'?b64u8(p.pptxSrc):new Uint8Array(p.pptxSrc)):null;
   await Promise.all(Object.entries(p.images||{}).map(([id,m])=>new Promise(res=>{const img=new Image();img.onload=()=>{S.images[id]={...m,img};res()};img.onerror=res;img.src=m.src})));
   S.doc=p.doc;S.sel=null;S.page=0;fitZoom();rebuild();renderAll();resetHistory();
 }
@@ -522,17 +549,18 @@ function endDrag(){
   if(D.mode==='create'){
     let r=D.rect;if(!r||r.w<2||r.h<2){const W=S.tool==='text'?40:40;r={x:D.p0.x,y:D.p0.y,w:W,h:W}}
     r={x:r1(r.x),y:r1(r.y),w:r1(r.w),h:r1(r.h)};
-    const mk=S.tool==='text'?textItem:S.tool==='image'?imageItem:rectItem;const it=mk(r);
+    const mk=S.tool==='text'?textItem:S.tool==='image'?imageItem:S.tool==='video'?videoItem:rectItem;const it=mk(r);if(S.doc.kind==='slide')slideDefaults(it);
     if(S.tool==='rect'&&S.doc.color==='mono')it.fill={c:0,m:0,y:0,k:20};
     S.doc.pages[D.pi].items.push(it);setTool('select');select(D.pi,it.id);dirty(D.pi);commit();
     if(it.type==='text')setTimeout(()=>{const t=$('#tText');if(t)t.focus()},0);
     if(it.type==='image'){imgTarget=it;$('#fImg').click()}
+    if(it.type==='video'){vidTarget=it;$('#fVid').click()}
     return;
   }
   commit();renderProps();
 }
 spreadsEl.addEventListener('pointerup',endDrag);spreadsEl.addEventListener('pointercancel',endDrag);
-spreadsEl.addEventListener('dblclick',e=>{const it=selItem();if(it&&it.type==='text'){showTab('props');const t=$('#tText');if(t){t.focus()}}else if(it&&it.type==='image'){imgTarget=it;$('#fImg').click()}});
+spreadsEl.addEventListener('dblclick',e=>{const it=selItem();if(it&&it.type==='text'){showTab('props');const t=$('#tText');if(t){t.focus()}}else if(it&&it.type==='image'){imgTarget=it;$('#fImg').click()}else if(it&&it.type==='video'){if(it.mediaId)playVideo(it);else{vidTarget=it;$('#fVid').click()}}});
 stage.addEventListener('pointerdown',e=>{if(e.target===stage||e.target===spreadsEl||e.target.classList.contains('spread')||e.target.classList.contains('slot'))select(null)});
 let imgTarget=null;
 $('#fImg').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f&&imgTarget)placeImageInto(imgTarget,f)});
@@ -578,6 +606,7 @@ function colorFields(k,c){if(S.doc.color==='mono')return `<div class="row">${F('
 function renderProps(){
   if(S.tab!=='props')return;const el=$('#tab-props'),it=selItem(),d=S.doc;
   if(!it){
+    if(d.kind==='slide'){renderSlideProps(el);return}
     if(d.kind==='cover'){el.innerHTML=`<div class="sec"><h3>表紙</h3><div class="ok">${esc(document.getElementById('docInfo').textContent)}</div></div>`;return}
     const pg=d.pages[S.page];
     el.innerHTML=`<div class="sec"><h3>ページ ${esc(nombreText(S.page))}（${isLeft(S.page)?'左':'右'}ページ）</h3>
@@ -590,7 +619,7 @@ function renderProps(){
   let h=`<div class="sec"><h3>位置とサイズ（mm）</h3><div class="row">${F('X',N('x',it.x))}${F('Y',N('y',it.y))}${F('幅',N('w',it.w))}${F('高さ',N('h',it.h))}</div></div>`;
   if(it.type==='text'){
     h+=`<div class="sec"><h3>テキスト</h3><textarea id="tText" data-k="text" spellcheck="false">${esc(it.text)}</textarea></div>
-    <div class="sec"><h3>文字</h3>${F('フォント',SEL('font',it.font,FONTS))}
+    <div class="sec"><h3>文字</h3>${F('フォント',SEL('font',it.font,FONTS.some(f=>f[0]===it.font)?FONTS:[...FONTS,[it.font,it.font]]))}
       <div class="row">${F('太さ',SEL('weight',it.weight,[[400,'標準'],[700,'太字']]))}${F('サイズ（pt）',N('size',it.size,0.5,'min="1"'))}
       ${F('行送り（%）',N('leading',it.leading,5,'min="80"'))}${F('字送り（1/1000em）',N('track',it.track,10))}
       ${F('組方向',SEL('dir',it.dir,[['v','縦組み'],['h','横組み']]))}${F('揃え',SEL('align',it.align,[['start','行頭'],['center','中央'],['end','行末']]))}</div></div>
@@ -599,8 +628,10 @@ function renderProps(){
   }else if(it.type==='image'){
     const im=S.images[it.imageId];const ppi=effPpi(it);
     h+=`<div class="sec"><h3>画像</h3><div class="btns"><button id="bPick">${im?'画像を差し替え':'画像を選択'}</button></div>
-      ${F('配置',SEL('fit',it.fit,[['cover','フレームを埋める'],['contain','全体を表示']]))}
+      ${F('配置',SEL('fit',it.fit,[['cover','フレームを埋める'],['contain','全体を表示'],['stretch','フレームに合わせて伸縮']]))}
       ${im?`<div class="ok">${esc(im.name||'')} ${im.w}×${im.h}px ・ <span style="color:${ppi<300?'var(--warn)':'inherit'}">実効 ${ppi}ppi</span></div>`:''}</div>`;
+  }else if(it.type==='video'){const m=S.media[it.mediaId];
+    h+=`<div class="sec"><h3>動画</h3><div class="btns"><button id="bVPick">${m?'動画を差し替え':'動画を選択'}</button>${m?'<button id="bVPlay">再生</button>':''}</div>${m?`<div class="ok">${esc(m.name||'')} ・ ${(m.blob.size/1048576).toFixed(1)}MB</div>`:''}</div>`;
   }else if(it.type==='rect'){
     h+=`<div class="sec"><h3><label class="chk"><input type="checkbox" data-null="fill" ${it.fill?'checked':''}> 塗り</label></h3>${it.fill?colorFields('fill',it.fill):''}</div>
     <div class="sec"><h3><label class="chk"><input type="checkbox" data-null="stroke" ${it.stroke?'checked':''}> 線</label></h3>${it.stroke?colorFields('stroke',it.stroke)+`<div class="row">${F('線幅（mm）',N('sw',it.sw,0.05,'min="0"'))}</div>`:''}</div>`;
@@ -608,6 +639,7 @@ function renderProps(){
   h+=`<div class="sec"><h3>配置</h3><div class="btns"><button id="bFront">最前面へ</button><button id="bBack">最背面へ</button><button id="bDup">複製</button><button id="bDel">削除</button></div></div>`;
   el.innerHTML=h;
   const pick=$('#bPick');if(pick)pick.onclick=()=>{imgTarget=it;$('#fImg').click()};
+  const vp=$('#bVPick');if(vp)vp.onclick=()=>{vidTarget=it;$('#fVid').click()};const vpl=$('#bVPlay');if(vpl)vpl.onclick=()=>playVideo(it);
   $('#bFront').onclick=()=>order(1);$('#bBack').onclick=()=>order(-1);$('#bDup').onclick=dupSel;$('#bDel').onclick=delSel;
 }
 function setPath(o,k,v){const ks=k.split('.');let t=o;for(let i=0;i<ks.length-1;i++)t=t[ks[i]];t[ks[ks.length-1]]=v}
@@ -623,6 +655,7 @@ $('#tab-props').addEventListener('change',e=>{const t=e.target,n=t.dataset.null,
 
 function renderDoc(){
   if(S.tab!=='doc')return;const d=S.doc,m=d.margins,nb=d.nombre;
+  if(d.kind==='slide'){renderSlideDoc();return}
   let h=`<div class="sec"><h3>書類</h3>${F('名前',`<input type="text" id="d-name" data-dk="name" value="${esc(d.name)}">`)}
     <div class="row">${F('仕上がり幅（mm）',`<input type="number" id="d-w" data-dk="trimW" value="${d.trimW}" step="1">`)}${F('仕上がり高さ（mm）',`<input type="number" id="d-h" data-dk="trimH" value="${d.trimH}" step="1">`)}
     ${d.kind==='cover'?F('背幅（mm）',`<input type="number" id="d-sp" data-dk="spine" value="${d.spine}" step="0.1">`):''}
@@ -647,8 +680,8 @@ $('#tab-doc').addEventListener('input',e=>{const t=e.target,k=t.dataset.dk;if(!k
 
 /* ---------- pages ---------- */
 function addPages(at,n){for(let k=0;k<n;k++)S.doc.pages.splice(at,0,{id:uid(),items:[],noNombre:false});rebuild();commit();setPage(at);toast(n+'ページ追加しました')}
-$('#bAddP').onclick=()=>{if(S.doc.kind==='cover')return;addPages(S.page+1,1)};
-$('#bDelP').onclick=()=>{const d=S.doc;if(d.kind==='cover'||d.pages.length<=1)return;d.pages.splice(S.page,1);S.sel=null;S.page=Math.min(S.page,d.pages.length-1);rebuild();commit();renderProps();toast('ページを削除しました（Ctrl+Zで元に戻せます）')};
+$('#bAddP').onclick=()=>{if(S.doc.kind==='cover')return;if(S.doc.kind==='slide'){addSlide('content');return}addPages(S.page+1,1)};
+$('#bDelP').onclick=()=>{const d=S.doc;if(d.kind==='cover'||d.pages.length<=1)return;if(d.pptx){toast('PowerPointファイルではスライドを削除できません');return}d.pages.splice(S.page,1);S.sel=null;S.page=Math.min(S.page,d.pages.length-1);rebuild();commit();renderProps();toast('ページを削除しました（Ctrl+Zで元に戻せます）')};
 
 /* ---------- preflight ---------- */
 let pfT=0,PF=[];
@@ -661,6 +694,7 @@ function preflight(){
     const lab=d.kind==='cover'?'表紙':nombreText(i);
     for(const it of pg.items){
       const at={page:i,id:it.id,lab};
+      if(d.kind==='slide'){if(it.type==='text'&&layout(it).overflow)out.push({lv:'err',...at,msg:'テキストがフレームからあふれています'});continue}
       if(it.type==='text'){
         const L=layout(it);
         if(L.overflow)out.push({lv:'err',...at,msg:'テキストがフレームからあふれています'});
@@ -694,7 +728,7 @@ $('#tab-pf').addEventListener('click',e=>{const b=e.target.closest('.pfi');if(!b
 
 /* ---------- zoom ---------- */
 function zoomBy(k){S.zoom=clamp(S.zoom*k,0.2,6);rebuild();if(S.sel)drawOverlay(S.sel.page)}
-function fitZoom(){const d=S.doc,h=stage.clientHeight||700,w=stage.clientWidth||900;const ph=(d.trimH+2*d.bleed)*PX,spw=(d.kind==='cover'?pw(d)+2*d.bleed:(pw(d)+2*d.bleed)*2)*PX+12;
+function fitZoom(){const d=S.doc,h=stage.clientHeight||700,w=stage.clientWidth||900;const ph=(d.trimH+2*d.bleed)*PX,spw=(d.kind!=='body'?pw(d)+2*d.bleed:(pw(d)+2*d.bleed)*2)*PX+12;
   S.zoom=clamp(Math.min((h-90)/ph,(w-70)/spw,1.5),0.2,1.5)}
 $('#bZi').onclick=()=>zoomBy(1.25);$('#bZo').onclick=()=>zoomBy(0.8);
 $('#bGuide').onclick=()=>{S.guides=!S.guides;$('#bGuide').classList.toggle('on',S.guides);dirtyAll()};
@@ -707,24 +741,27 @@ function closeModal(){$('#modal').hidden=true;$('#modal').innerHTML=''}
 $('#modal').addEventListener('pointerdown',e=>{if(e.target.id==='modal'&&!exporting)closeModal()});
 $('#bNew').onclick=()=>{
   const dlg=modal(`<h2>新規書類</h2>
-    <div class="row">${F('種類','<select id="n-kind"><option value="body">本文</option><option value="cover">表紙（表1・背・表4）</option></select>')}
-    ${F('仕上がりサイズ',`<select id="n-size">${Object.keys(SIZES).map(k=>`<option${k==='A5'?' selected':''}>${k}</option>`).join('')}<option value="custom">カスタム</option></select>`)}
-    ${F('幅（mm）','<input type="number" id="n-w" value="148" step="1">')}${F('高さ（mm）','<input type="number" id="n-h" value="210" step="1">')}
-    ${F('綴じ','<select id="n-bind"><option value="right">右綴じ（縦書き）</option><option value="left">左綴じ（横書き）</option></select>')}
-    ${F('カラー','<select id="n-col"><option value="mono">モノクロ</option><option value="cmyk">カラー（CMYK）</option></select>')}
+    <div class="row">${F('種類','<select id="n-kind"><option value="body">本文</option><option value="cover">表紙（表1・背・表4）</option><option value="slide">スライド（16:9）</option></select>')}
+    <span class="n-book">${F('仕上がりサイズ',`<select id="n-size">${Object.keys(SIZES).map(k=>`<option${k==='A5'?' selected':''}>${k}</option>`).join('')}<option value="custom">カスタム</option></select>`)}</span>
+    <span class="n-book">${F('幅（mm）','<input type="number" id="n-w" value="148" step="1">')}</span><span class="n-book">${F('高さ（mm）','<input type="number" id="n-h" value="210" step="1">')}</span>
+    <span class="n-book">${F('綴じ','<select id="n-bind"><option value="right">右綴じ（縦書き）</option><option value="left">左綴じ（横書き）</option></select>')}</span>
+    <span class="n-book">${F('カラー','<select id="n-col"><option value="mono">モノクロ</option><option value="cmyk">カラー（CMYK）</option></select>')}</span>
     <span id="n-pw">${F('ページ数','<input type="number" id="n-pages" value="24" step="4" min="1">')}</span>
     <span id="n-sw" hidden>${F('背幅（mm）','<input type="number" id="n-spine" value="3" step="0.1" min="0">')}</span></div>
+    <div id="n-slide" class="sec" hidden><h3>テーマ</h3>${themeGrid('blue')}<div class="row">${F('構成のひな形',`<select id="n-flow">${Object.keys(FLOWS).map(k=>`<option>${k}</option>`).join('')}<option value="">白紙</option></select>`)}</div></div>
     <div class="foot"><button id="n-cancel">キャンセル</button><button class="primary" id="n-ok">作成</button></div>`);
-  const sync=()=>{const k=$('#n-size').value;if(k!=='custom'){$('#n-w').value=SIZES[k][0];$('#n-h').value=SIZES[k][1]}const cv=$('#n-kind').value==='cover';$('#n-pw').hidden=cv;$('#n-sw').hidden=!cv};
+  const sync=()=>{const k=$('#n-size').value;if(k!=='custom'){$('#n-w').value=SIZES[k][0];$('#n-h').value=SIZES[k][1]}const kv=$('#n-kind').value,cv=kv==='cover',sl=kv==='slide';$('#n-pw').hidden=cv||sl;$('#n-sw').hidden=!cv;$$('.n-book').forEach(x=>x.hidden=sl);$('#n-slide').hidden=!sl;dlg.classList.toggle('wide',sl)};
   $('#n-size').onchange=sync;$('#n-kind').onchange=sync;
+  $('#n-slide').onclick=e=>{const b=e.target.closest('.th');if(!b)return;$$('#n-slide .th').forEach(x=>x.classList.toggle('on',x===b))};
   $('#n-cancel').onclick=closeModal;
-  $('#n-ok').onclick=()=>{const w=+$('#n-w').value,h=+$('#n-h').value;if(!(w>=20&&h>=20)){toast('サイズを20mm以上で入力してください');return}
+  $('#n-ok').onclick=()=>{if($('#n-kind').value==='slide'){const th=$('#n-slide .th.on');createSlideDoc(th?th.dataset.th:'blue',$('#n-flow').value);closeModal();openOutline();return}
+    const w=+$('#n-w').value,h=+$('#n-h').value;if(!(w>=20&&h>=20)){toast('サイズを20mm以上で入力してください');return}
     const kind=$('#n-kind').value;S.doc=newDoc({kind,name:'無題',w,h,binding:$('#n-bind').value,color:$('#n-col').value,pages:+$('#n-pages').value,spine:+$('#n-spine').value});
-    S.images={};S.sel=null;S.page=0;closeModal();fitZoom();rebuild();renderAll();resetHistory()};
+    S.images={};S.media={};S.pptxSrc=null;S.sel=null;S.page=0;closeModal();fitZoom();rebuild();renderAll();resetHistory()};
 };
 $('#bOpen').onclick=()=>$('#fOpen').click();
-$('#fOpen').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{await loadProject(JSON.parse(await f.text()));toast('開きました：'+f.name)}catch(err){toast(err.message||'開けませんでした')}});
-function saveProject(){const j=JSON.stringify(projectData());saveFile((S.doc.name||'無題')+'.thinbook.json',new Blob([j],{type:'application/json'}))}
+$('#fOpen').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{if(/\.pptx$/i.test(f.name))await importPPTX(f);else await loadProject(JSON.parse(await f.text()));toast('開きました：'+f.name)}catch(err){toast(err.message||'開けませんでした')}});
+async function saveProject(){const pd=projectData(true);for(const m of Object.values(pd.media)){m.data=u8b64(new Uint8Array(await m.blob.arrayBuffer()));delete m.blob}const j=JSON.stringify(pd);saveFile((S.doc.name||'無題')+'.thinbook.json',new Blob([j],{type:'application/json'}))}
 $('#bSave').onclick=saveProject;
 
 /* ---------- PDF export ---------- */
@@ -807,6 +844,608 @@ async function exportPDF(opt,progress){
   return new Blob(parts,{type:'application/pdf'});
 }
 
+/* ---------- slides ---------- */
+const SW=12192000/36000,SH=6858000/36000,SM=22;
+const THEMES={
+  blue:{name:'ブルー',bg:'#ffffff',ink:'#0b1f44',sub:'#5b6b85',accent:'#1d5cff',on:'#ffffff',head:'Noto Sans JP',body:'Noto Sans JP'},
+  navy:{name:'ネイビー',bg:'#0b1f44',ink:'#ffffff',sub:'#a9b8d6',accent:'#ffc933',on:'#0b1f44',head:'Noto Sans JP',body:'Noto Sans JP'},
+  mono:{name:'モノクロ',bg:'#ffffff',ink:'#111111',sub:'#6b6b6b',accent:'#111111',on:'#ffffff',head:'Noto Sans JP',body:'Noto Sans JP'},
+  green:{name:'グリーン',bg:'#ffffff',ink:'#0d2b22',sub:'#557a6c',accent:'#00a676',on:'#ffffff',head:'Zen Maru Gothic',body:'Zen Maru Gothic'},
+  coral:{name:'コーラル',bg:'#ffffff',ink:'#2a1a1f',sub:'#8a6f76',accent:'#ff5a5f',on:'#ffffff',head:'Zen Maru Gothic',body:'Noto Sans JP'},
+  dark:{name:'ダーク',bg:'#111318',ink:'#f2f4f7',sub:'#9aa3b2',accent:'#7c5cff',on:'#ffffff',head:'Noto Sans JP',body:'Noto Sans JP'},
+  mincho:{name:'明朝',bg:'#ffffff',ink:'#1a1a1a',sub:'#707070',accent:'#c8102e',on:'#ffffff',head:'Shippori Mincho',body:'BIZ UDPMincho'},
+};
+function hexC(h){const n=parseInt(String(h).replace('#',''),16),r=(n>>16&255)/255,g=(n>>8&255)/255,b=(n&255)/255,k=1-Math.max(r,g,b);
+  if(k>=0.9999)return{c:0,m:0,y:0,k:100};const f=v=>Math.round((1-v-k)/(1-k)*1000)/10;return{c:f(r),m:f(g),y:f(b),k:Math.round(k*1000)/10}}
+function cHex(c){return cmykCss(c).match(/\d+/g).map(v=>(+v).toString(16).padStart(2,'0')).join('').toUpperCase()}
+const tx=(slot,x,y,w,h,size,o={})=>({t:'text',slot,x,y,w,h,size,...o});
+const rc=(x,y,w,h,fr='accent')=>({t:'rect',x,y,w,h,fr});
+const LAYOUTS={
+  title:{name:'タイトル',bg:'bg',items:()=>[rc(0,0,9,SH),rc(SM+8,70,26,2.4),tx('title',SM+8,80,SW-2*SM-8,38,44,{b:1,lead:120}),tx('sub',SM+8,124,SW-2*SM-8,18,18,{c:'sub',f:'body',lead:150})]},
+  section:{name:'区切り',bg:'accent',items:()=>[tx('num',SM+8,62,120,12,24,{b:1,c:'on'}),tx('title',SM+8,80,SW-2*SM-8,38,40,{b:1,c:'on',lead:120})]},
+  content:{name:'本文',bg:'bg',items:()=>[tx('title',SM,16,SW-2*SM,24,28,{b:1,lead:130}),rc(SM,44,18,1.6),tx('body',SM,54,SW-2*SM,SH-54-14,18,{f:'body',lead:170})]},
+  two:{name:'2段',bg:'bg',items:()=>{const cw=(SW-2*SM-16)/2;return[tx('title',SM,16,SW-2*SM,24,28,{b:1,lead:130}),rc(SM,44,18,1.6),
+    tx('body',SM,54,cw,SH-54-14,16,{f:'body',lead:170}),rc(SM+cw+7.6,56,0.8,SH-56-18,'sub'),tx('body2',SM+cw+16,54,cw,SH-54-14,16,{f:'body',lead:170})]}},
+  image:{name:'画像',bg:'bg',items:()=>{const iw=SW*0.46,x=iw+16,w=SW-x-SM;return[{t:'image',slot:'image',x:0,y:0,w:iw,h:SH},
+    tx('title',x,26,w,24,28,{b:1,lead:130}),rc(x,54,18,1.6),tx('body',x,64,w,SH-64-16,16,{f:'body',lead:170})]}},
+  number:{name:'数字',bg:'bg',items:()=>[tx('num',SM,24,SW-2*SM,50,120,{b:1,c:'accent',lead:100}),tx('title',SM,96,SW-2*SM,24,28,{b:1,lead:130}),tx('body',SM,124,SW-2*SM,48,16,{c:'sub',f:'body',lead:170})]},
+};
+const PH={title:'タイトル',sub:'サブタイトル',body:'本文',body2:'本文',num:'01'};
+function theme(){return THEMES[S.doc&&S.doc.theme]||THEMES.blue}
+function themePage(pg,T=theme()){
+  if(pg.bgRole)pg.bg=hexC(T[pg.bgRole]);
+  for(const it of pg.items){if(it.colorRole)it.color=hexC(T[it.colorRole]);if(it.fillRole)it.fill=hexC(T[it.fillRole]);if(it.fontRole)it.font=T[it.fontRole]}
+}
+function makeSlide(key,t={},T){
+  const L=LAYOUTS[key]||LAYOUTS.content;key=LAYOUTS[key]?key:'content';
+  const pg={id:uid(),items:[],noNombre:true,layout:key,bgRole:L.bg};
+  for(const sp of L.items()){const g={x:r1(sp.x),y:r1(sp.y),w:r1(sp.w),h:r1(sp.h),lay:1};let it;
+    if(sp.t==='rect')it=rectItem({...g,fill:null,fillRole:sp.fr});
+    else if(sp.t==='image')it=imageItem({...g,slot:'image',imageId:t.image||null,fit:'cover'});
+    else{const v=t[sp.slot];it=textItem({...g,slot:sp.slot,text:v!=null&&String(v).trim()!==''?v:PH[sp.slot],size:sp.size,weight:sp.b?700:400,leading:sp.lead||150,dir:'h',align:sp.align||'start',colorRole:sp.c||'ink',fontRole:sp.f||'head'})}
+    pg.items.push(it)}
+  themePage(pg,T);return pg;
+}
+function slideDefaults(it){const T=theme();
+  if(it.type==='text')Object.assign(it,{size:18,leading:160,dir:'h',weight:400,colorRole:'ink',fontRole:'body',color:hexC(T.ink),font:T.body});
+  else if(it.type==='rect')Object.assign(it,{fillRole:'accent',fill:hexC(T.accent)});
+}
+function slideTexts(pg){const t={};for(const it of pg.items){if(!it.slot||it.slot in t)continue;t[it.slot]=it.type==='image'?it.imageId:it.text}return t}
+function setLayout(pi,key){const d=S.doc,pg=d.pages[pi];const n=makeSlide(key,slideTexts(pg));n.id=pg.id;n.items.push(...pg.items.filter(x=>!x.lay));
+  d.pages[pi]=n;S.sel=null;dirty(pi);commit();renderProps()}
+function addSlide(key){const d=S.doc;if(d.pptx){toast('PowerPointファイルではスライドを追加できません');return}const at=Math.min(S.page+1,d.pages.length);d.pages.splice(at,0,makeSlide(key));rebuild();commit();setPage(at);renderProps();
+  const pe=S.pageEls[at];if(pe)pe.el.scrollIntoView({block:'center',behavior:'smooth'})}
+function setTheme(k){const d=S.doc;d.theme=k;d.pages.forEach(p=>themePage(p));dirtyAll();updateInfo();commit();renderDoc();renderProps()}
+function themeGrid(cur){return `<div class="themes">${Object.entries(THEMES).map(([k,t])=>`<button type="button" class="th${k===cur?' on':''}" data-th="${k}"><span class="sw" style="background:${t.bg}"><i style="background:${t.accent}"></i><b style="color:${t.ink};font-family:'${t.head}'">Aa</b></span>${esc(t.name)}</button>`).join('')}</div>`}
+const layThumbCache=new Map();
+function drawLayThumbs(root){
+  const T=theme(),dpr=window.devicePixelRatio||1;
+  for(const b of root.querySelectorAll('.lay')){const c=b.querySelector('canvas'),k=b.dataset.lay,ck=(S.doc.theme||'')+k;
+    let pg=layThumbCache.get(ck);if(!pg){pg=makeSlide(k,{},T);layThumbCache.set(ck,pg)}
+    c.width=Math.round(120*dpr);c.height=Math.round(120*SH/SW*dpr);const ctx=c.getContext('2d'),s=c.width/SW;ctx.setTransform(s,0,0,s,0,0);
+    ctx.fillStyle=cmykCss(pg.bg);ctx.fillRect(0,0,SW,SH);
+    for(const it of pg.items){if(it.type==='image'){ctx.fillStyle=T.sub;ctx.fillRect(it.x,it.y,it.w,it.h)}else drawItem(ctx,it,null,false)}}
+}
+function layBtns(cur){return Object.entries(LAYOUTS).map(([k,l])=>`<button type="button" class="lay${k===cur?' on':''}" data-lay="${k}"><canvas></canvas>${esc(l.name)}</button>`).join('')}
+function renderSlideProps(el){
+  const d=S.doc,pg=d.pages[S.page];
+  if(d.pptx){el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1}</h3></div>`;return}
+  el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1} のレイアウト</h3><div class="lays" id="layCur">${layBtns(pg.layout)}</div></div>
+    <div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`;
+  drawLayThumbs(el);
+  $('#layCur').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
+  $('#layAdd').onclick=e=>{const b=e.target.closest('.lay');if(b)addSlide(b.dataset.lay)};
+}
+function renderSlideDoc(){
+  const d=S.doc;
+  $('#tab-doc').innerHTML=`<div class="sec"><h3>書類</h3>${F('名前',`<input type="text" id="d-name" data-dk="name" value="${esc(d.name)}">`)}</div>`+
+    (d.pptx?'':`<div class="sec"><h3>テーマ</h3>${themeGrid(d.theme)}</div>`);
+  $$('#tab-doc .th').forEach(b=>b.onclick=()=>setTheme(b.dataset.th));
+}
+
+/* ---------- outline ---------- */
+const TAGS={'タイトル':'title','区切り':'section','本文':'content','2段':'two','画像':'image','数字':'number'};
+const FLOWS={
+'提案':`提案タイトル
+発表者・日付
+
+背景
+
+[数字] いまの課題
+42%
+課題の説明
+
+解決策
+・ポイント1
+・ポイント2
+・ポイント3
+
+[画像] 導入後のイメージ
+使われ方の説明
+
+[2段] 比較
+導入前
+・項目
+---
+導入後
+・項目
+
+まとめ
+・要点1
+・要点2`,
+'報告':`報告タイトル
+期間・担当
+
+概要
+・目的
+・実施内容
+
+[数字] 主な結果
+120%
+目標に対する達成率
+
+結果の詳細
+・項目
+
+考察
+・よかった点
+・課題
+
+次のアクション
+・項目`,
+'紹介':`名前
+
+[画像] プロフィール
+・経歴
+・好きなこと
+
+できること
+・項目
+
+[数字] 実績
+300件
+これまでの制作数
+
+連絡先
+・メール
+・SNS`,
+};
+function parseOutline(src){
+  const blocks=String(src).replace(/\r/g,'').split(/\n[ \t　]*\n/).map(b=>b.split('\n').map(x=>x.replace(/\s+$/,'')).filter(x=>x.trim())).filter(b=>b.length);
+  let sec=0;
+  return blocks.map((ls,i)=>{
+    let h=ls[0].trim(),rest=ls.slice(1),key=null;const m=h.match(/^[\[［]([^\]］]+)[\]］]\s*/);
+    if(m&&TAGS[m[1].trim()]){key=TAGS[m[1].trim()];h=h.slice(m[0].length)}
+    if(!key)key=i===0?'title':rest.length?'content':'section';
+    const t={title:h};
+    if(key==='title')t.sub=rest.join('\n');
+    else if(key==='section'){sec++;t.num=String(sec).padStart(2,'0');t.title=[h,...rest].join('\n')}
+    else if(key==='number'){t.num=(rest[0]||'').trim();t.body=rest.slice(1).join('\n')}
+    else if(key==='two'){const k=rest.findIndex(x=>/^\s*[-－ー]{3,}\s*$/.test(x));const hf=Math.ceil(rest.length/2);
+      t.body=(k<0?rest.slice(0,hf):rest.slice(0,k)).join('\n');t.body2=(k<0?rest.slice(hf):rest.slice(k+1)).join('\n')}
+    else t.body=rest.join('\n');
+    return{key,t};
+  });
+}
+function serializeOutline(){
+  const one=s=>String(s||'').replace(/\s*\n\s*/g,' ').trim(),ml=s=>String(s||'').split('\n').filter(x=>x.trim()).join('\n');
+  return S.doc.pages.map((pg,i)=>{const t=slideTexts(pg),k=pg.layout||'content',L=[];
+    if(k==='title'){L.push((i?'[タイトル] ':'')+one(t.title));if(ml(t.sub))L.push(ml(t.sub))}
+    else if(k==='section'){const tl=ml(t.title).split('\n');L.push((i===0||tl.length>1?'[区切り] ':'')+tl[0],...tl.slice(1))}
+    else if(k==='two')L.push('[2段] '+one(t.title),ml(t.body),'---',ml(t.body2));
+    else if(k==='image')L.push('[画像] '+one(t.title),ml(t.body));
+    else if(k==='number')L.push('[数字] '+one(t.title),one(t.num),ml(t.body));
+    else{const b=ml(t.body);L.push((i===0||!b?'[本文] ':'')+one(t.title));if(b)L.push(b)}
+    return L.filter(x=>x!=='').join('\n')}).join('\n\n');
+}
+function applyOutline(src){
+  const d=S.doc,list=parseOutline(src);if(!list.length){toast('構成が空です');return false}
+  const imgs=[];d.pages.forEach(p=>p.items.forEach(it=>{if(it.slot==='image'&&it.imageId)imgs.push(it.imageId)}));
+  d.pages=list.map(({key,t})=>{if(key==='image'&&imgs.length)t.image=imgs.shift();return makeSlide(key,t)});
+  S.sel=null;S.page=0;rebuild();commit();renderAll();return true;
+}
+let sampleCap=null;
+try{if(window.claude&&window.claude.use)sampleCap=window.claude.use('sample')}catch(e){}
+const OUTLINE_RULES=`# 書式（厳守）
+- スライドごとに空行で区切る
+- 1枚目：1行目がタイトル、2行目がサブタイトル
+- 1行だけのブロックは章の区切りスライド
+- 通常のスライド：1行目が見出し、続く行が本文。箇条書きは「・」で始める
+- 行頭に [数字] を付けた見出し：次の行に大きく見せる数字（例：42%）、その後に説明
+- 行頭に [画像] を付けた見出し：画像と文章のスライド
+- 行頭に [2段] を付けた見出し：本文を「---」だけの行で左右に分ける
+- 本文は1枚5行以内、1行30字以内`;
+function openOutline(){
+  const d=S.doc;if(d.kind!=='slide'||d.pptx)return;
+  const dlg=modal(`<h2>構成</h2>
+    <div class="row">${F('ひな形',`<select id="o-flow"><option value="">—</option>${Object.keys(FLOWS).map(k=>`<option>${k}</option>`).join('')}</select>`)}</div>
+    <textarea id="o-text" class="outline" spellcheck="false">${esc(serializeOutline())}</textarea>
+    <div class="hint">空行でスライドを区切る ・ 1行だけのブロックは区切り ・ 行頭の [数字] [画像] [2段] でレイアウト指定</div>
+    <div class="sec" id="o-ai" hidden><h3>Claudeに相談</h3><div class="aiask"><input type="text" id="o-q" aria-label="依頼"><button id="o-ask">送信</button><button id="o-undo" hidden>元に戻す</button></div><div class="ok" id="o-st"></div></div>
+    <div class="foot"><button id="o-cancel">閉じる</button><button class="primary" id="o-ok">スライドに反映</button></div>`);
+  dlg.classList.add('wide');
+  const ta=$('#o-text');
+  $('#o-flow').onchange=e=>{const v=FLOWS[e.target.value];if(v!=null)ta.value=v};
+  $('#o-cancel').onclick=closeModal;
+  $('#o-ok').onclick=()=>{if(applyOutline(ta.value))closeModal()};
+  let prev=null,busy=null;
+  (async()=>{const sm=sampleCap&&await sampleCap;if(!sm||!$('#o-ai'))return;$('#o-ai').hidden=false;
+    const st=$('#o-st'),btn=$('#o-ask');
+    $('#o-undo').onclick=()=>{if(prev!=null){ta.value=prev;prev=null;$('#o-undo').hidden=true;st.textContent=''}};
+    const ask=async()=>{
+      if(busy){busy.abort();return}
+      const q=$('#o-q').value.trim(),cur=ta.value.trim();
+      const prompt=`プレゼン資料の構成と内容を一緒に考えてください。話の流れが自然につながるように組み立ててください。\n\n${OUTLINE_RULES}\n\n# 現在の構成\n${cur||'（まだありません）'}\n\n# 依頼\n${q||'内容を具体的にし、話の流れがよくなるよう改善してください'}\n\n構成テキストだけを出力してください。前置き、説明、コードブロックは不要です。`;
+      prev=ta.value;busy=new AbortController();btn.textContent='停止';st.textContent='考えています…';$('#o-undo').hidden=true;
+      const clean=s=>s.replace(/^```[^\n]*\n?/,'').replace(/\n?```\s*$/,'');
+      try{const r=await sm(prompt,{signal:busy.signal,onText:({text})=>{ta.value=clean(text);st.textContent='書いています…'}});ta.value=clean(r.text).trim();st.textContent=r.truncated?'途中で終わりました':'';$('#o-undo').hidden=false}
+      catch(err){const c=err&&err.code;
+        if(c==='not_granted'){$('#o-ai').hidden=true;ta.value=prev}
+        else if(c==='aborted'||(err&&err.name==='AbortError')){st.textContent='停止しました';$('#o-undo').hidden=false}
+        else{st.textContent=c==='rate_limited'?'混み合っています。少し待ってから送信してください':'うまくいきませんでした（'+(c||err.message||err)+'）';if(err&&err.text)ta.value=clean(err.text);else ta.value=prev;$('#o-undo').hidden=false}}
+      busy=null;btn.textContent='送信';
+    };
+    btn.onclick=ask;$('#o-q').onkeydown=e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();ask()}};
+  })();
+}
+$('#bOutline').onclick=openOutline;
+function createSlideDoc(th,flow){
+  const d=newDoc({kind:'slide',name:'無題',w:SW,h:SH,binding:'left',color:'cmyk',pages:1});
+  d.bleed=0;d.margins={top:SM,bottom:SM,inner:SM,outer:SM};d.nombre.mode='none';d.theme=th;
+  S.doc=d;S.images={};S.media={};S.pptxSrc=null;S.sel=null;S.page=0;
+  d.pages=parseOutline(FLOWS[flow]||'タイトル').map(({key,t})=>makeSlide(key,t));
+  fitZoom();rebuild();renderAll();resetHistory();
+}
+
+/* ---------- zip ---------- */
+const PZ=(()=>{
+  const T=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xedb88320^(c>>>1):c>>>1;T[n]=c>>>0}
+  const crc=u=>{let c=0xffffffff;for(let i=0;i<u.length;i++)c=T[(c^u[i])&255]^(c>>>8);return(c^0xffffffff)>>>0};
+  const pipe=async(u8,s)=>new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(s)).arrayBuffer());
+  function read(u8){
+    const dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);let e=u8.length-22;while(e>=0&&dv.getUint32(e,true)!==0x06054b50)e--;
+    if(e<0)throw new Error('PowerPointファイルとして読めません');
+    const n=dv.getUint16(e+10,true);let p=dv.getUint32(e+16,true);const out=[],td=new TextDecoder();
+    for(let k=0;k<n;k++){
+      if(dv.getUint32(p,true)!==0x02014b50)throw new Error('ファイルが壊れています');
+      const method=dv.getUint16(p+10,true),crc=dv.getUint32(p+16,true),csize=dv.getUint32(p+20,true),usize=dv.getUint32(p+24,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
+      const name=td.decode(u8.subarray(p+46,p+46+nl));const ds=lo+30+dv.getUint16(lo+26,true)+dv.getUint16(lo+28,true);
+      out.push({name,method,crc,csize,usize,raw:u8.subarray(ds,ds+csize)});p+=46+nl+xl+cl;
+    }
+    return out;
+  }
+  async function data(e){if(e.method===0)return e.raw;if(e.method===8)return pipe(e.raw,new DecompressionStream('deflate-raw'));throw new Error('未対応の圧縮形式です')}
+  async function write(list,type){
+    const enc=new TextEncoder(),parts=[],cd=[];let off=0;
+    for(const f of list){
+      const nm=enc.encode(f.name);let method,crc32,csize,usize,raw;
+      if(f.data==null)({method,crc:crc32,csize,usize,raw}=f);
+      else{const u=typeof f.data==='string'?enc.encode(f.data):f.data;crc32=crc(u);usize=u.length;raw=u;method=0;
+        if(!/\.(png|jpe?g|gif)$/i.test(f.name)&&u.length>256){try{const z=await pipe(u,new CompressionStream('deflate-raw'));if(z.length<u.length){raw=z;method=8}}catch(e){}}
+        csize=raw.length}
+      const h=new DataView(new ArrayBuffer(30));h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint16(8,method,true);h.setUint16(12,0x21,true);
+      h.setUint32(14,crc32,true);h.setUint32(18,csize,true);h.setUint32(22,usize,true);h.setUint16(26,nm.length,true);parts.push(new Uint8Array(h.buffer),nm,raw);
+      const c=new DataView(new ArrayBuffer(46));c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);c.setUint16(10,method,true);c.setUint16(14,0x21,true);
+      c.setUint32(16,crc32,true);c.setUint32(20,csize,true);c.setUint32(24,usize,true);c.setUint16(28,nm.length,true);c.setUint32(42,off,true);cd.push(new Uint8Array(c.buffer),nm);
+      off+=30+nm.length+raw.length;
+    }
+    const cs=cd.reduce((a,b)=>a+b.length,0),e=new DataView(new ArrayBuffer(22));e.setUint32(0,0x06054b50,true);e.setUint16(8,list.length,true);e.setUint16(10,list.length,true);e.setUint32(12,cs,true);e.setUint32(16,off,true);
+    return new Blob([...parts,...cd,new Uint8Array(e.buffer)],{type});
+  }
+  return{crc,read,data,write};
+})();
+
+/* ---------- video ---------- */
+let vidTarget=null;
+const VEXT={'video/mp4':'mp4','video/quicktime':'mov','video/webm':'webm','video/x-m4v':'m4v','video/x-ms-wmv':'wmv','video/x-msvideo':'avi','video/mpeg':'mpg'};
+const VMIME={mp4:'video/mp4',m4v:'video/mp4',mov:'video/quicktime',webm:'video/webm',wmv:'video/x-ms-wmv',avi:'video/x-msvideo',mpg:'video/mpeg',mpeg:'video/mpeg'};
+const vext=m=>VEXT[m.type]||((m.name||'').split('.').pop()||'mp4').toLowerCase();
+function videoPoster(blob){return new Promise((res,rej)=>{const v=document.createElement('video'),u=URL.createObjectURL(blob);v.muted=true;v.playsInline=true;v.preload='auto';
+  const done=f=>{clearTimeout(t);URL.revokeObjectURL(u);f()};const t=setTimeout(()=>done(()=>rej(new Error('timeout'))),15000);
+  v.onloadeddata=()=>{v.currentTime=Math.min(0.5,(v.duration||1)/10)};
+  v.onseeked=()=>{const c=document.createElement('canvas');c.width=v.videoWidth||640;c.height=v.videoHeight||360;c.getContext('2d').drawImage(v,0,0,c.width,c.height);done(()=>c.toBlob(res,'image/png'))};
+  v.onerror=()=>done(()=>rej(new Error('decode')));v.src=u})}
+function blankPoster(){const c=document.createElement('canvas');c.width=640;c.height=360;const x=c.getContext('2d');x.fillStyle='#000000';x.fillRect(0,0,640,360);return new Promise(r=>c.toBlob(r,'image/png'))}
+async function placeVideoInto(it,file){
+  try{const pb=await videoPoster(file).catch(()=>blankPoster());const im=await readImage(new File([pb],'poster.png',{type:'image/png'}));
+    const pid=uid(),mid=uid();S.images[pid]=im;S.media[mid]={blob:file,name:file.name,type:file.type||VMIME[(file.name.split('.').pop()||'').toLowerCase()]||'video/mp4'};
+    if(!it.mediaId&&im.w&&im.h){const k=Math.min(it.w/im.w,it.h/im.h);it.x=r1(it.x+(it.w-im.w*k)/2);it.y=r1(it.y+(it.h-im.h*k)/2);it.w=r1(im.w*k);it.h=r1(im.h*k)}
+    it.posterId=pid;it.mediaId=mid;sepCache.clear();const pi=S.sel?S.sel.page:S.page;dirty(pi);commit();renderProps();
+  }catch(e){toast('動画を読み込めませんでした')}
+}
+$('#fVid').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f&&vidTarget)placeVideoInto(vidTarget,f)});
+function playVideo(it){const m=S.media[it.mediaId];if(!m)return;const u=URL.createObjectURL(m.blob);
+  modal(`<h2>${esc(m.name||'動画')}</h2><video id="v-el" controls autoplay playsinline style="width:100%;max-height:70vh;display:block"></video><div class="ok" id="v-msg"></div><div class="foot"><button id="v-close">閉じる</button></div>`).classList.add('wide');
+  const v=$('#v-el');v.src=u;v.onerror=()=>{$('#v-msg').textContent='このブラウザでは再生できない形式です（PowerPointでは再生できます）'};
+  $('#v-close').onclick=()=>{v.pause();URL.revokeObjectURL(u);closeModal()}}
+const P14='http://schemas.microsoft.com/office/powerpoint/2010/main';
+function spVideo(id,it,rEmbed,rLink,rPoster,im){let x=it.x,y=it.y,w=it.w,h=it.h;
+  if(im&&it.fit!=='stretch'){const sc=Math.min(w/im.w,h/im.h),dw=im.w*sc,dh=im.h*sc;x+=(w-dw)/2;y+=(h-dh)/2;w=dw;h=dh}
+  return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="動画 ${id}"><a:hlinkClick r:id="" action="ppaction://media"/></p:cNvPr><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr><a:videoFile r:link="${rLink}"/><p:extLst><p:ext uri="{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}"><p14:media xmlns:p14="${P14}" r:embed="${rEmbed}"/></p:ext></p:extLst></p:nvPr></p:nvPicPr><p:blipFill><a:blip r:embed="${rPoster}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(x,y,w,h)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`}
+
+/* ---------- PPTX export ---------- */
+const PPTX_MIME='application/vnd.openxmlformats-officedocument.presentationml.presentation';
+const NA='http://schemas.openxmlformats.org/drawingml/2006/main',NP='http://schemas.openxmlformats.org/presentationml/2006/main',NR='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const NS=`xmlns:a="${NA}" xmlns:r="${NR}" xmlns:p="${NP}"`,RT=NR+'/',CT='application/vnd.openxmlformats-officedocument.';
+const XH='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n';
+const X=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,'');
+const EMU=36000,E=v=>Math.round(v*EMU);
+const GRP='<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>';
+const relsXml=a=>XH+`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${a.join('')}</Relationships>`;
+const rel=(id,type,target)=>`<Relationship Id="${id}" Type="${type.includes('/')?type:RT+type}" Target="${target}"/>`;
+const xfrm=(x,y,w,h)=>`<a:xfrm><a:off x="${E(x)}" y="${E(y)}"/><a:ext cx="${Math.max(1,E(w))}" cy="${Math.max(1,E(h))}"/></a:xfrm>`;
+const solid=c=>`<a:solidFill><a:srgbClr val="${cHex(c)}"/></a:solidFill>`;
+function spRect(id,it){return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="図形 ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(it.x,it.y,it.w,it.h)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${it.fill?solid(it.fill):'<a:noFill/>'}${it.stroke&&it.sw>0?`<a:ln w="${E(it.sw)}">${solid(it.stroke)}</a:ln>`:'<a:ln><a:noFill/></a:ln>'}</p:spPr></p:sp>`}
+function runPr(it,tag){const sz=clamp(Math.round(it.size*100),100,400000),spc=Math.round(it.track*it.size/10);
+  return `<${tag} lang="ja-JP" altLang="en-US" sz="${sz}" b="${it.weight>=700?1:0}"${spc?` spc="${spc}"`:''} dirty="0">${solid(it.color)}<a:latin typeface="${X(it.font)}"/><a:ea typeface="${X(it.font)}"/></${tag}>`}
+function spText(id,it){
+  const al={start:'l',center:'ctr',end:'r'}[it.align]||'l',ls=clamp(Math.round(it.size*it.leading),0,158400);
+  const ps=String(it.text).split('\n').map(line=>`<a:p><a:pPr algn="${al}"><a:lnSpc><a:spcPts val="${ls}"/></a:lnSpc></a:pPr>${line?`<a:r>${runPr(it,'a:rPr')}<a:t>${X(line)}</a:t></a:r>`:''}${runPr(it,'a:endParaRPr')}</a:p>`).join('');
+  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="テキスト ${id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(it.x,it.y,it.w,it.h)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr><p:txBody><a:bodyPr vert="${it.dir==='v'?'eaVert':'horz'}" wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0" anchor="${it.anchor||'t'}"><a:noAutofit/></a:bodyPr><a:lstStyle/>${ps}</p:txBody></p:sp>`;
+}
+function spPic(id,it,rid,im){
+  let x=it.x,y=it.y,w=it.w,h=it.h,crop='';
+  if(it.fit==='contain'){const sc=Math.min(w/im.w,h/im.h),dw=im.w*sc,dh=im.h*sc;x+=(w-dw)/2;y+=(h-dh)/2;w=dw;h=dh}
+  else if(it.fit!=='stretch'){const sc=Math.max(w/im.w,h/im.h),cx=(1-w/(im.w*sc))/2,cy=(1-h/(im.h*sc))/2,p=v=>Math.round(v*100000);if(cx>1e-4||cy>1e-4)crop=`<a:srcRect l="${p(cx)}" t="${p(cy)}" r="${p(cx)}" b="${p(cy)}"/>`}
+  return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="画像 ${id}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rid}"/>${crop}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(x,y,w,h)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
+}
+function b64u8(s){const bin=atob(s),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u}
+function u8b64(u){let s='';for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)}
+async function imageBytes(id){
+  const im=S.images[id],m=/^data:image\/(png|jpeg);base64,(.*)$/.exec(im.src||'');
+  if(m)return{ext:m[1],u8:b64u8(m[2])};
+  const c=document.createElement('canvas');c.width=im.w;c.height=im.h;c.getContext('2d').drawImage(im.img,0,0);
+  const b=await new Promise(r=>c.toBlob(r,'image/png'));return{ext:'png',u8:new Uint8Array(await b.arrayBuffer())};
+}
+async function itemsXml(items,ctx){let out='';
+  for(const it of items){
+    if(it.type==='rect'){if(it.fill||it.stroke)out+=spRect(ctx.id(),it)}
+    else if(it.type==='text'){if(String(it.text).trim())out+=spText(ctx.id(),it)}
+    else if(it.type==='image'&&it.imageId&&S.images[it.imageId]){const rid=await ctx.img(it.imageId);out+=spPic(ctx.id(),it,rid,S.images[it.imageId])}
+    else if(it.type==='video'&&it.mediaId&&S.media[it.mediaId]&&it.posterId&&S.images[it.posterId]){const v=await ctx.video(it.mediaId),rp=await ctx.img(it.posterId);out+=spVideo(ctx.id(),it,v.embed,v.link,rp,S.images[it.posterId])}
+  }
+  return out}
+function nombreItem(i){const d=S.doc,nb=d.nombre;if(d.kind!=='body'||nb.mode==='none'||nb.mode==='hidden'||d.pages[i].noNombre)return null;
+  const W=pw(d),L=isLeft(i),bw=20,sz=nb.size*PT;let x=nb.mode==='center'?W/2-bw/2:L?d.margins.outer:W-d.margins.outer-bw;
+  return textItem({x,y:d.trimH-nb.offset-sz/2,w:bw,h:sz*1.4,text:nombreText(i),font:nb.font,size:nb.size,dir:'h',leading:100,align:nb.mode==='center'?'center':L?'start':'end'})}
+const NOTE_SP=(paras,pr='')=>`<p:sp><p:nvSpPr><p:cNvPr id="2" name="ノート"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr><p:spPr>${pr}</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${paras}</p:txBody></p:sp>`;
+function themeXml(T){
+  const c=v=>`<a:srgbClr val="${v.replace('#','').toUpperCase()}"/>`,ph='<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>';
+  return XH+`<a:theme xmlns:a="${NA}" name="Thinbook"><a:themeElements><a:clrScheme name="Thinbook"><a:dk1>${c(T.ink)}</a:dk1><a:lt1>${c(T.bg)}</a:lt1><a:dk2>${c(T.ink)}</a:dk2><a:lt2>${c(T.sub)}</a:lt2>`+
+  `<a:accent1>${c(T.accent)}</a:accent1><a:accent2>${c(T.sub)}</a:accent2><a:accent3>${c(T.ink)}</a:accent3><a:accent4>${c(T.accent)}</a:accent4><a:accent5>${c(T.sub)}</a:accent5><a:accent6>${c(T.ink)}</a:accent6><a:hlink>${c(T.accent)}</a:hlink><a:folHlink>${c(T.sub)}</a:folHlink></a:clrScheme>`+
+  `<a:fontScheme name="Thinbook"><a:majorFont><a:latin typeface="${X(T.head)}"/><a:ea typeface="${X(T.head)}"/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="${X(T.body)}"/><a:ea typeface="${X(T.body)}"/><a:cs typeface=""/></a:minorFont></a:fontScheme>`+
+  `<a:fmtScheme name="Thinbook"><a:fillStyleLst>${ph}${ph}${ph}</a:fillStyleLst><a:lnStyleLst>${`<a:ln w="6350">${ph}</a:ln>`.repeat(3)}</a:lnStyleLst><a:effectStyleLst>${'<a:effectStyle><a:effectLst/></a:effectStyle>'.repeat(3)}</a:effectStyleLst><a:bgFillStyleLst>${ph}${ph}${ph}</a:bgFillStyleLst></a:fmtScheme></a:themeElements><a:objectDefaults/><a:extraClrSchemeLst/></a:theme>`;
+}
+async function exportPPTX(){
+  if(S.doc.pptx)return patchPPTX();
+  await ensureFonts();
+  const d=S.doc,W=pw(d),H=d.trimH,n=d.pages.length,files=[],media=new Map(),vexts=new Map(),notesIdx=[];let mi=0,hasNotes=false;
+  const T=d.kind==='slide'?theme():{bg:'#ffffff',ink:'#000000',sub:'#666666',accent:'#000000',head:'Noto Sans JP',body:'Noto Serif JP'};
+  const cx=d.kind==='slide'?12192000:clamp(E(W),914400,51206400),cy=d.kind==='slide'?6858000:clamp(E(H),914400,51206400);
+  for(let i=0;i<n;i++){
+    const pg=d.pages[i],rels=[rel('rId1','slideLayout','../slideLayouts/slideLayout1.xml')],rmap={};let nid=2;
+    const ctx={id:()=>nid++,img:async id=>{if(rmap[id])return rmap[id];let m=media.get(id);
+      if(!m){const b=await imageBytes(id);m={name:`image${++mi}.${b.ext}`,u8:b.u8};media.set(id,m)}
+      const rid='rId'+(rels.length+1);rels.push(rel(rid,'image','../media/'+m.name));rmap[id]=rid;return rid},
+      video:async id=>{let m=media.get(id);if(!m){const v=S.media[id],e=vext(v);vexts.set(e,v.type||VMIME[e]||'video/mp4');m={name:`media${++mi}.${e}`,u8:new Uint8Array(await v.blob.arrayBuffer())};media.set(id,m)}
+        const a='rId'+(rels.length+1),b='rId'+(rels.length+2);rels.push(rel(a,'http://schemas.microsoft.com/office/2007/relationships/media','../media/'+m.name),rel(b,'video','../media/'+m.name));return{embed:a,link:b}}};
+    const its=[...pg.items],nb=nombreItem(i);if(nb)its.push(nb);
+    const body=await itemsXml(its,ctx);
+    const bg=pg.bg?`<p:bg><p:bgPr>${solid(pg.bg)}<a:effectLst/></p:bgPr></p:bg>`:'';
+    if(pg.notes&&String(pg.notes).trim()){hasNotes=true;rels.push(rel('rId'+(rels.length+1),'notesSlide',`../notesSlides/notesSlide${i+1}.xml`));
+      const np=String(pg.notes).split('\n').map(l=>`<a:p>${l?`<a:r><a:rPr lang="ja-JP" dirty="0"/><a:t>${X(l)}</a:t></a:r>`:''}<a:endParaRPr lang="ja-JP" dirty="0"/></a:p>`).join('');
+      files.push({name:`ppt/notesSlides/notesSlide${i+1}.xml`,data:XH+`<p:notes ${NS}><p:cSld><p:spTree>${GRP}${NOTE_SP(np)}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:notes>`});
+      files.push({name:`ppt/notesSlides/_rels/notesSlide${i+1}.xml.rels`,data:relsXml([rel('rId1','notesMaster','../notesMasters/notesMaster1.xml'),rel('rId2','slide',`../slides/slide${i+1}.xml`)])});
+      notesIdx.push(i+1)}
+    files.push({name:`ppt/slides/slide${i+1}.xml`,data:XH+`<p:sld ${NS}><p:cSld>${bg}<p:spTree>${GRP}${body}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`});
+    files.push({name:`ppt/slides/_rels/slide${i+1}.xml.rels`,data:relsXml(rels)});
+  }
+  for(const m of media.values())files.push({name:'ppt/media/'+m.name,data:m.u8});
+  if(hasNotes){files.push({name:'ppt/notesMasters/notesMaster1.xml',data:XH+`<p:notesMaster ${NS}><p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree>${GRP}${NOTE_SP('<a:p><a:endParaRPr lang="ja-JP"/></a:p>','<a:xfrm><a:off x="685800" y="4400550"/><a:ext cx="5486400" cy="3600450"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>')}</p:spTree></p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/></p:notesMaster>`},
+    {name:'ppt/notesMasters/_rels/notesMaster1.xml.rels',data:relsXml([rel('rId1','theme','../theme/theme2.xml')])},{name:'ppt/theme/theme2.xml',data:themeXml(T)})}
+  const now=new Date().toISOString().replace(/\.\d+Z$/,'Z'),ov=(p,t)=>`<Override PartName="/${p}" ContentType="${t}"/>`;
+  const head=[
+    {name:'[Content_Types].xml',data:XH+`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/>${[...vexts].map(([e,t])=>`<Default Extension="${e}" ContentType="${t}"/>`).join('')}`+
+      ov('ppt/presentation.xml',CT+'presentationml.presentation.main+xml')+ov('ppt/slideMasters/slideMaster1.xml',CT+'presentationml.slideMaster+xml')+ov('ppt/slideLayouts/slideLayout1.xml',CT+'presentationml.slideLayout+xml')+
+      d.pages.map((_,i)=>ov(`ppt/slides/slide${i+1}.xml`,CT+'presentationml.slide+xml')).join('')+ov('ppt/theme/theme1.xml',CT+'theme+xml')+
+      (hasNotes?ov('ppt/notesMasters/notesMaster1.xml',CT+'presentationml.notesMaster+xml')+ov('ppt/theme/theme2.xml',CT+'theme+xml')+notesIdx.map(k=>ov(`ppt/notesSlides/notesSlide${k}.xml`,CT+'presentationml.notesSlide+xml')).join(''):'')+
+      ov('ppt/presProps.xml',CT+'presentationml.presProps+xml')+ov('ppt/viewProps.xml',CT+'presentationml.viewProps+xml')+ov('ppt/tableStyles.xml',CT+'presentationml.tableStyles+xml')+
+      ov('docProps/core.xml','application/vnd.openxmlformats-package.core-properties+xml')+ov('docProps/app.xml',CT+'extended-properties+xml')+'</Types>'},
+    {name:'_rels/.rels',data:relsXml([rel('rId1','officeDocument','ppt/presentation.xml'),rel('rId2','http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties','docProps/core.xml'),rel('rId3','extended-properties','docProps/app.xml')])},
+    {name:'docProps/core.xml',data:XH+`<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${X(d.name||'')}</dc:title><dc:creator>Thinbook</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`},
+    {name:'docProps/app.xml',data:XH+`<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Thinbook</Application><Slides>${n}</Slides></Properties>`},
+    {name:'ppt/presentation.xml',data:XH+`<p:presentation ${NS} saveSubsetFonts="1"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>${hasNotes?`<p:notesMasterIdLst><p:notesMasterId r:id="rId${n+6}"/></p:notesMasterIdLst>`:''}<p:sldIdLst>${d.pages.map((_,i)=>`<p:sldId id="${256+i}" r:id="rId${i+3}"/>`).join('')}</p:sldIdLst><p:sldSz cx="${cx}" cy="${cy}"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>`},
+    {name:'ppt/_rels/presentation.xml.rels',data:relsXml([rel('rId1','slideMaster','slideMasters/slideMaster1.xml'),rel('rId2','theme','theme/theme1.xml'),...d.pages.map((_,i)=>rel('rId'+(i+3),'slide',`slides/slide${i+1}.xml`)),
+      rel('rId'+(n+3),'presProps','presProps.xml'),rel('rId'+(n+4),'viewProps','viewProps.xml'),rel('rId'+(n+5),'tableStyles','tableStyles.xml'),...(hasNotes?[rel('rId'+(n+6),'notesMaster','notesMasters/notesMaster1.xml')]:[])])},
+    {name:'ppt/presProps.xml',data:XH+`<p:presentationPr ${NS}/>`},
+    {name:'ppt/viewProps.xml',data:XH+`<p:viewPr ${NS}/>`},
+    {name:'ppt/tableStyles.xml',data:XH+`<a:tblStyleLst xmlns:a="${NA}" def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"/>`},
+    {name:'ppt/theme/theme1.xml',data:themeXml(T)},
+    {name:'ppt/slideMasters/slideMaster1.xml',data:XH+`<p:sldMaster ${NS}><p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree>${GRP}</p:spTree></p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst><p:txStyles><p:titleStyle/><p:bodyStyle/><p:otherStyle/></p:txStyles></p:sldMaster>`},
+    {name:'ppt/slideMasters/_rels/slideMaster1.xml.rels',data:relsXml([rel('rId1','slideLayout','../slideLayouts/slideLayout1.xml'),rel('rId2','theme','../theme/theme1.xml')])},
+    {name:'ppt/slideLayouts/slideLayout1.xml',data:XH+`<p:sldLayout ${NS} type="blank" preserve="1"><p:cSld name="Blank"><p:spTree>${GRP}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`},
+    {name:'ppt/slideLayouts/_rels/slideLayout1.xml.rels',data:relsXml([rel('rId1','slideMaster','../slideMasters/slideMaster1.xml')])},
+  ];
+  return PZ.write([...head,...files],PPTX_MIME);
+}
+
+/* ---------- PPTX import / non-destructive save ---------- */
+const kid=(el,name,ns=NA)=>{if(!el)return null;for(const c of el.children)if(c.localName===name&&c.namespaceURI===ns)return c;return null};
+const kids=(el,name,ns=NA)=>el?[...el.children].filter(c=>c.localName===name&&c.namespaceURI===ns):[];
+function partResolve(base,t){if(t.startsWith('/'))return t.slice(1);const a=base.split('/');a.pop();for(const s of t.split('/')){if(s==='..')a.pop();else if(s&&s!=='.')a.push(s)}return a.join('/')}
+const relsPath=part=>{const i=part.lastIndexOf('/');return part.slice(0,i)+'/_rels/'+part.slice(i+1)+'.rels'};
+function hsl(hex,mods){
+  let r=parseInt(hex.slice(0,2),16)/255,g=parseInt(hex.slice(2,4),16)/255,b=parseInt(hex.slice(4,6),16)/255;
+  const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let h=0,s=0,l=(mx+mn)/2;
+  if(mx!==mn){const dd=mx-mn;s=l>.5?dd/(2-mx-mn):dd/(mx+mn);h=mx===r?(g-b)/dd+(g<b?6:0):mx===g?(b-r)/dd+2:(r-g)/dd+4;h/=6}
+  for(const m of mods){const v=+m.getAttribute('val')/100000;if(m.localName==='lumMod')l*=v;else if(m.localName==='lumOff')l+=v;
+    else if(m.localName==='tint'){r=g=b=null;l=l+(1-l)*(1-v)}else if(m.localName==='shade')l*=v}
+  l=clamp(l,0,1);const f=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;return t<1/6?p+(q-p)*6*t:t<1/2?q:t<2/3?p+(q-p)*(2/3-t)*6:p};
+  let R,G,B;if(s===0)R=G=B=l;else{const q=l<.5?l*(1+s):l+s-l*s,p=2*l-q;R=f(p,q,h+1/3);G=f(p,q,h);B=f(p,q,h-1/3)}
+  return [R,G,B].map(v=>Math.round(v*255).toString(16).padStart(2,'0')).join('');
+}
+async function importPPTX(file){
+  const u8=new Uint8Array(await file.arrayBuffer()),ents=PZ.read(u8),map=new Map(ents.map(e=>[e.name,e])),td=new TextDecoder(),cache=new Map();
+  const xml=async n=>{if(cache.has(n))return cache.get(n);const e=map.get(n);const x=e?new DOMParser().parseFromString(td.decode(await PZ.data(e)),'application/xml'):null;cache.set(n,x);return x};
+  const rels=async part=>{const x=await xml(relsPath(part)),o={};if(x)for(const r of x.getElementsByTagName('Relationship'))o[r.getAttribute('Id')]={type:r.getAttribute('Type')||'',target:r.getAttribute('TargetMode')==='External'?null:partResolve(part,r.getAttribute('Target'))};return o};
+  const relOf=(rs,suffix)=>Object.values(rs).find(r=>r.type.endsWith('/'+suffix)&&r.target);
+  const pres=await xml('ppt/presentation.xml');if(!pres)throw new Error('PowerPointファイルではありません');
+  const prel=await rels('ppt/presentation.xml');
+  const sz=pres.getElementsByTagNameNS(NP,'sldSz')[0],cx=+sz.getAttribute('cx'),cy=+sz.getAttribute('cy');
+  const parts=[...pres.getElementsByTagNameNS(NP,'sldId')].map(e=>(prel[e.getAttributeNS(NR,'id')]||{}).target).filter(Boolean);
+  const d=newDoc({kind:'slide',name:file.name.replace(/\.pptx$/i,''),w:cx/EMU,h:cy/EMU,binding:'left',color:'cmyk',pages:1});
+  d.bleed=0;d.margins={top:SM,bottom:SM,inner:SM,outer:SM};d.nombre.mode='none';d.pptx={name:file.name};d.pages=[];
+  const images={},mediaIds=new Map(),vmedia={},vIds=new Map();
+  for(const part of parts){
+    const sx=await xml(part);if(!sx)continue;const srel=await rels(part);
+    const lpart=(relOf(srel,'slideLayout')||{}).target,lx=lpart&&await xml(lpart),lrel=lpart?await rels(lpart):{};
+    const mpart=(relOf(lrel,'slideMaster')||{}).target,mx=mpart&&await xml(mpart),mrel=mpart?await rels(mpart):{};
+    const tpart=(relOf(mrel,'theme')||{}).target,tx_=tpart&&await xml(tpart);
+    const scheme={},fonts={mj:'',mn:''};
+    if(tx_){const cs=tx_.getElementsByTagNameNS(NA,'clrScheme')[0];if(cs)for(const c of cs.children){const v=c.firstElementChild;if(v)scheme[c.localName]=v.getAttribute('val')&&v.localName==='srgbClr'?v.getAttribute('val'):(v.getAttribute('lastClr')||'000000')}
+      for(const [k,tag] of [['mj','majorFont'],['mn','minorFont']]){const f=tx_.getElementsByTagNameNS(NA,tag)[0];if(f){const ea=kid(f,'ea'),la=kid(f,'latin');fonts[k]=(ea&&ea.getAttribute('typeface'))||(la&&la.getAttribute('typeface'))||''}}}
+    const cmEl=mx&&mx.getElementsByTagNameNS(NP,'clrMap')[0],cmap={};if(cmEl)for(const a of cmEl.attributes)cmap[a.name]=a.value;
+    const color=fill=>{if(!fill)return null;const v=fill.firstElementChild;if(!v)return null;let hex=null;
+      if(v.localName==='srgbClr')hex=v.getAttribute('val');else if(v.localName==='sysClr')hex=v.getAttribute('lastClr');
+      else if(v.localName==='schemeClr'){let n=v.getAttribute('val');n=cmap[n]||{bg1:'lt1',tx1:'dk1',bg2:'lt2',tx2:'dk2'}[n]||n;hex=scheme[n]}
+      else if(v.localName==='prstClr')hex={black:'000000',white:'FFFFFF'}[v.getAttribute('val')]||'000000';
+      if(!hex)return null;if(v.children.length)hex=hsl(hex,[...v.children]);return hexC('#'+hex)};
+    const bgOf=x=>{const bg=x&&x.getElementsByTagNameNS(NP,'bg')[0];if(!bg)return null;const pr=kid(bg,'bgPr',NP);if(pr)return color(kid(pr,'solidFill'));const ref=kid(bg,'bgRef',NP);return ref?color(ref):null};
+    const pg={id:uid(),items:[],noNombre:true,part,bg:bgOf(sx)||bgOf(lx)||bgOf(mx)||null,srcIds:[]};
+    const npart=(relOf(srel,'notesSlide')||{}).target,nx=npart&&await xml(npart);
+    if(nx)for(const sp of nx.getElementsByTagNameNS(NP,'sp')){const ph=sp.getElementsByTagNameNS(NP,'ph')[0];if(!ph||(ph.getAttribute('type')||'body')!=='body')continue;
+      pg.notes=[...sp.getElementsByTagNameNS(NA,'p')].map(p=>[...p.getElementsByTagNameNS(NA,'t')].map(t=>t.textContent).join('')).join('\n').trim();pg.notesOrig=pg.notes;break}
+    const phOf=sp=>{const nv=sp.firstElementChild,pr=nv&&kid(nv,'nvPr',NP),ph=pr&&kid(pr,'ph',NP);return ph?{type:ph.getAttribute('type')||'body',idx:ph.getAttribute('idx')}:null};
+    const findPh=(x,ph)=>{if(!x)return null;let byType=null;for(const sp of x.getElementsByTagNameNS(NP,'sp')){const p=phOf(sp);if(!p)continue;if(ph.idx!=null&&p.idx===ph.idx)return sp;if(!byType&&p.type===ph.type)byType=sp}return byType};
+    const xfOf=sp=>{const pr=kid(sp,'spPr',NP)||kid(sp,'grpSpPr',NP),xf=pr&&kid(pr,'xfrm');if(!xf)return null;const o=kid(xf,'off'),e=kid(xf,'ext');if(!o||!e)return null;
+      return{x:+o.getAttribute('x'),y:+o.getAttribute('y'),w:+e.getAttribute('cx'),h:+e.getAttribute('cy'),flat:xf}};
+    const walk=async(tree,tf,inGrp)=>{
+      for(const el of tree.children){const ln=el.localName;
+        if(ln==='grpSp'){const g=xfOf(el);if(!g)continue;const co=kid(g.flat,'chOff'),ce=kid(g.flat,'chExt');
+          const ox=co?+co.getAttribute('x'):0,oy=co?+co.getAttribute('y'):0,ew=ce&&+ce.getAttribute('cx')||g.w,eh=ce&&+ce.getAttribute('cy')||g.h,kx=g.w/ew,ky=g.h/eh;
+          await walk(el,(x,y,w,h)=>tf(g.x+(x-ox)*kx,g.y+(y-oy)*ky,w*kx,h*ky),true);continue}
+        if(ln!=='sp'&&ln!=='pic')continue;
+        const nv=el.firstElementChild,c=nv&&kid(nv,'cNvPr',NP);if(!c)continue;const id=c.getAttribute('id');pg.srcIds.push(id);
+        const ph=phOf(el);let g=xfOf(el),inh=false;
+        if(!g&&ph){const s1=findPh(lx,ph),s2=findPh(mx,ph);g=(s1&&xfOf(s1))||(s2&&xfOf(s2));inh=true}
+        if(!g)continue;const box=tf(g.x,g.y,g.w,g.h);const src={id,grp:inGrp,inh};
+        if(ln==='pic'){const blip=el.getElementsByTagNameNS(NA,'blip')[0],r=blip&&srel[blip.getAttributeNS(NR,'embed')];let imageId=null;
+          if(r&&r.target&&map.get(r.target)&&/\.(png|jpe?g|gif|bmp|webp|svg)$/i.test(r.target)){imageId=mediaIds.get(r.target);
+            if(!imageId){try{const ext=r.target.split('.').pop().toLowerCase(),mime={jpg:'jpeg',svg:'svg+xml'}[ext]||ext;
+              const im=await readImage(new File([await PZ.data(map.get(r.target))],r.target.split('/').pop(),{type:'image/'+mime}));imageId=uid();images[imageId]=im;mediaIds.set(r.target,imageId)}catch(e){}}}
+          const nvPr=kid(el.firstElementChild,'nvPr',NP),vf=nvPr&&kid(nvPr,'videoFile'),pm=el.getElementsByTagNameNS(P14,'media')[0];
+          const vr=(pm&&srel[pm.getAttributeNS(NR,'embed')])||(vf&&srel[vf.getAttributeNS(NR,'link')]);
+          if(vr&&vr.target&&map.get(vr.target)){let mid=vIds.get(vr.target);
+            if(!mid){const e=vr.target.split('.').pop().toLowerCase(),nm=vr.target.split('/').pop();mid=uid();vmedia[mid]={blob:new Blob([await PZ.data(map.get(vr.target))],{type:VMIME[e]||'video/mp4'}),name:nm,type:VMIME[e]||'video/mp4'};vIds.set(vr.target,mid)}
+            pg.items.push(videoItem({...box,mediaId:mid,posterId:imageId,fit:'stretch',src:{...src,kind:'pic',o:{...box,imageId:mid}}}));continue}
+          pg.items.push(imageItem({...box,imageId,fit:'stretch',src:{...src,kind:'pic',o:{...box,imageId}}}));continue}
+        const spPr=kid(el,'spPr',NP),fl=color(kid(spPr,'solidFill')),lnEl=kid(spPr,'ln'),st=lnEl&&color(kid(lnEl,'solidFill'));
+        const tb=kid(el,'txBody',NP),paras=kids(tb,'p');
+        const text=paras.map(p=>[...p.children].map(r=>r.localName==='br'?'\n':(r.localName==='r'||r.localName==='fld')?(kid(r,'t')||{}).textContent||'':'').join('')).join('\n');
+        if(fl||st)pg.items.push(rectItem({...box,fill:fl,stroke:st,sw:lnEl&&lnEl.getAttribute('w')?+lnEl.getAttribute('w')/EMU:0.3,src:{...src,kind:'fill',hasText:!!text.trim(),o:{...box}}}));
+        if(!text.trim())continue;
+        const bp=kid(tb,'bodyPr'),A=(n,def)=>bp&&bp.getAttribute(n)!=null?+bp.getAttribute(n)/EMU:def;
+        const ins={l:A('lIns',2.54),t:A('tIns',1.27),r:A('rIns',2.54),b:A('bIns',1.27)};
+        const vert=bp&&/^(eaVert|vert|wordArtVert|mongolianVert)$/.test(bp.getAttribute('vert')||'');
+        const af=bp&&kid(bp,'normAutofit'),scale=af&&af.getAttribute('fontScale')?+af.getAttribute('fontScale')/100000:1;
+        const rPr=tb.getElementsByTagNameNS(NA,'rPr')[0]||tb.getElementsByTagNameNS(NA,'endParaRPr')[0];
+        const isTitle=ph&&/^(title|ctrTitle)$/.test(ph.type);
+        let size=rPr&&rPr.getAttribute('sz')?+rPr.getAttribute('sz')/100:isTitle?40:ph?24:18;size=Math.round(size*scale*10)/10;
+        const tf_=rPr&&(kid(rPr,'ea')||kid(rPr,'latin'));let font=tf_&&tf_.getAttribute('typeface')||'';
+        if(!font||font.startsWith('+'))font=(font.startsWith('+mj')||(!font&&isTitle)?fonts.mj:fonts.mn)||'Noto Sans JP';
+        const col=(rPr&&color(kid(rPr,'solidFill')))||hexC('#'+(scheme[cmap.tx1||'dk1']||'000000'));
+        const pPr=paras[0]&&kid(paras[0],'pPr'),al=pPr&&pPr.getAttribute('algn');
+        const lsp=pPr&&kid(pPr,'lnSpc'),pct=lsp&&kid(lsp,'spcPct'),pts=lsp&&kid(lsp,'spcPts');
+        const leading=pct?Math.round(+pct.getAttribute('val')/1000*1.2):pts?Math.round(+pts.getAttribute('val')/size):120;
+        const anchor=(bp&&bp.getAttribute('anchor'))||(isTitle&&ph.type!=='ctrTitle'?'ctr':'t');
+        const it=textItem({x:box.x+ins.l,y:box.y+ins.t,w:Math.max(1,box.w-ins.l-ins.r),h:Math.max(1,box.h-ins.t-ins.b),text,font,size,weight:rPr&&rPr.getAttribute('b')==='1'?700:400,
+          leading:clamp(leading,80,400),dir:vert?'v':'h',align:al==='ctr'?'center':al==='r'?'end':'start',anchor:anchor==='ctr'?'ctr':anchor==='b'?'b':'t',color:col});
+        it.src={...src,kind:'text',ins,scale,o:{x:it.x,y:it.y,w:it.w,h:it.h,text,size,weight:it.weight,color:cHex(col),font}};
+        pg.items.push(it);
+      }
+    };
+    const tree=sx.getElementsByTagNameNS(NP,'spTree')[0];
+    if(tree)await walk(tree,(x,y,w,h)=>({x:r1(x/EMU),y:r1(y/EMU),w:r1(w/EMU),h:r1(h/EMU)}),false);
+    d.pages.push(pg);
+  }
+  if(!d.pages.length)throw new Error('スライドが見つかりません');
+  S.doc=d;S.images=images;S.media=vmedia;S.pptxSrc=u8;S.sel=null;S.page=0;fitZoom();rebuild();renderAll();resetHistory();
+}
+const near=(a,b)=>Math.abs(a-b)<0.05;
+function setXfrm(el,x,y,w,h){
+  const pr=kid(el,'spPr',NP),doc=el.ownerDocument;if(!pr)return;let xf=kid(pr,'xfrm');
+  if(!xf){xf=doc.createElementNS(NA,'a:xfrm');pr.insertBefore(xf,pr.firstChild)}
+  let o=kid(xf,'off'),e=kid(xf,'ext');if(!o){o=doc.createElementNS(NA,'a:off');xf.insertBefore(o,xf.firstChild)}if(!e){e=doc.createElementNS(NA,'a:ext');xf.insertBefore(e,o.nextSibling)}
+  o.setAttribute('x',E(x));o.setAttribute('y',E(y));e.setAttribute('cx',Math.max(1,E(w)));e.setAttribute('cy',Math.max(1,E(h)));
+}
+const RPR_ORDER=['ln','noFill','solidFill','gradFill','blipFill','pattFill','grpFill','effectLst','effectDag','highlight','uLnTx','uLn','uFillTx','uFill','latin','ea','cs','sym','hlinkClick','hlinkMouseOver','rtl','extLst'];
+function rprSet(rp,name,make){const doc=rp.ownerDocument;const ex=kid(rp,name);const nu=make(doc);if(ex){rp.replaceChild(nu,ex);return}
+  const i=RPR_ORDER.indexOf(name);const after=[...rp.children].find(c=>RPR_ORDER.indexOf(c.localName)>i);rp.insertBefore(nu,after||null)}
+function setRunStyle(tb,it,s){
+  const o=s.o,ch={size:!near(it.size,o.size),weight:it.weight!==o.weight,color:cHex(it.color)!==o.color,font:it.font!==o.font};
+  if(!ch.size&&!ch.weight&&!ch.color&&!ch.font)return false;
+  const doc=tb.ownerDocument;
+  for(const r of tb.getElementsByTagNameNS(NA,'r'))if(!kid(r,'rPr'))r.insertBefore(doc.createElementNS(NA,'a:rPr'),r.firstChild);
+  for(const rp of [...tb.getElementsByTagNameNS(NA,'rPr'),...tb.getElementsByTagNameNS(NA,'endParaRPr')]){
+    if(ch.size)rp.setAttribute('sz',clamp(Math.round(it.size/(s.scale||1)*100),100,400000));
+    if(ch.weight)rp.setAttribute('b',it.weight>=700?'1':'0');
+    if(ch.color){for(const f of ['noFill','gradFill','blipFill','pattFill','grpFill']){const x=kid(rp,f);if(x)rp.removeChild(x)}
+      rprSet(rp,'solidFill',dd=>{const f=dd.createElementNS(NA,'a:solidFill'),c=dd.createElementNS(NA,'a:srgbClr');c.setAttribute('val',cHex(it.color));f.appendChild(c);return f})}
+    if(ch.font)for(const n of ['latin','ea'])rprSet(rp,n,dd=>{const f=dd.createElementNS(NA,'a:'+n);f.setAttribute('typeface',it.font);return f});
+  }
+  return true;
+}
+function setText(tb,text){
+  const doc=tb.ownerDocument,ps=kids(tb,'p'),tm=ps.length?ps:[null];
+  for(const p of ps)tb.removeChild(p);
+  String(text).split('\n').forEach((line,i)=>{
+    const t=tm[Math.min(i,tm.length-1)],p=doc.createElementNS(NA,'a:p');
+    const pPr=t&&kid(t,'pPr');if(pPr)p.appendChild(pPr.cloneNode(true));
+    const r0=t&&kids(t,'r')[0],rPr=r0&&kid(r0,'rPr'),end=t&&kid(t,'endParaRPr');
+    if(line){const r=doc.createElementNS(NA,'a:r');
+      if(rPr)r.appendChild(rPr.cloneNode(true));else if(end){const rp=doc.createElementNS(NA,'a:rPr');for(const a of end.attributes)rp.setAttribute(a.name,a.value);for(const c of end.children)rp.appendChild(c.cloneNode(true));r.appendChild(rp)}
+      const tt=doc.createElementNS(NA,'a:t');tt.textContent=line;r.appendChild(tt);p.appendChild(r)}
+    if(end)p.appendChild(end.cloneNode(true));
+    else if(rPr){const e=doc.createElementNS(NA,'a:endParaRPr');for(const a of rPr.attributes)e.setAttribute(a.name,a.value);for(const c of rPr.children)e.appendChild(c.cloneNode(true));p.appendChild(e)}
+    tb.appendChild(p);
+  });
+}
+async function patchPPTX(){
+  if(!S.pptxSrc)throw new Error('元のPowerPointファイルが見つかりません。もう一度開いてください');
+  const ents=PZ.read(S.pptxSrc),map=new Map(ents.map(e=>[e.name,e])),td=new TextDecoder(),out=new Map(),added=[];let mi=0;
+  const ser=x=>XH+new XMLSerializer().serializeToString(x).replace(/^<\?xml[^>]*>\s*/,'');
+  const parse=async n=>new DOMParser().parseFromString(td.decode(await PZ.data(map.get(n))),'application/xml');
+  const exts=new Map();
+  for(const pg of S.doc.pages){
+    if(!pg.part||!map.get(pg.part))continue;
+    const x=await parse(pg.part);let changed=false,rx=null;const rp=relsPath(pg.part);
+    const byId=new Map();for(const c of x.getElementsByTagNameNS(NP,'cNvPr'))byId.set(c.getAttribute('id'),c.parentNode.parentNode);
+    const relDoc=async()=>{if(!rx)rx=map.get(rp)?await parse(rp):new DOMParser().parseFromString(relsXml([]),'application/xml');return rx};
+    const addRel=async(type,target)=>{const r=await relDoc(),root=r.documentElement,rid='rIdTb'+(++mi),el=r.createElementNS(root.namespaceURI,'Relationship');el.setAttribute('Id',rid);el.setAttribute('Type',type);el.setAttribute('Target',target);root.appendChild(el);return rid};
+    const addVid=async id=>{const v=S.media[id],e=vext(v),nm=`thinbook${Date.now().toString(36)}${++mi}.${e}`;added.push({name:'ppt/media/'+nm,data:new Uint8Array(await v.blob.arrayBuffer())});exts.set(e,v.type||VMIME[e]||'video/mp4');
+      return{embed:await addRel('http://schemas.microsoft.com/office/2007/relationships/media','../media/'+nm),link:await addRel(RT+'video','../media/'+nm)}};
+    const addImg=async id=>{const b=await imageBytes(id),nm=`thinbook${Date.now().toString(36)}${++mi}.${b.ext}`;added.push({name:'ppt/media/'+nm,data:b.u8});exts.set(b.ext,'image/'+b.ext);
+      const r=await relDoc(),root=r.documentElement,rid='rIdTb'+mi,el=r.createElementNS(root.namespaceURI,'Relationship');
+      el.setAttribute('Id',rid);el.setAttribute('Type',RT+'image');el.setAttribute('Target','../media/'+nm);root.appendChild(el);return rid};
+    const seen=new Set(),fresh=[];
+    for(const it of pg.items){const s=it.src;if(!s){fresh.push(it);continue}seen.add(s.id);const el=byId.get(s.id);if(!el)continue;
+      const o=s.o,moved=!(near(it.x,o.x)&&near(it.y,o.y)&&near(it.w,o.w)&&near(it.h,o.h));
+      if(s.kind==='text'){const tb=kid(el,'txBody',NP);if(!tb)continue;
+        if(it.text!==o.text){setText(tb,it.text);changed=true}
+        if(setRunStyle(tb,it,s))changed=true;
+        if(moved&&!s.grp){setXfrm(el,it.x-s.ins.l,it.y-s.ins.t,it.w+s.ins.l+s.ins.r,it.h+s.ins.t+s.ins.b);changed=true}}
+      else if(s.kind==='fill'){if(moved&&!s.grp&&!s.hasText){setXfrm(el,it.x,it.y,it.w,it.h);changed=true}}
+      else if(s.kind==='pic'){
+        if(moved&&!s.grp){setXfrm(el,it.x,it.y,it.w,it.h);changed=true}
+        if(it.type==='image'&&it.imageId&&it.imageId!==o.imageId&&S.images[it.imageId]){const blip=el.getElementsByTagNameNS(NA,'blip')[0];if(blip){blip.setAttributeNS(NR,'r:embed',await addImg(it.imageId));changed=true}}}
+    }
+    for(const id of pg.srcIds||[])if(!seen.has(id)){const el=byId.get(id);if(el&&el.parentNode){el.parentNode.removeChild(el);changed=true}}
+    if(fresh.length){let nid=Math.max(1,...[...byId.keys()].map(Number).filter(n=>!isNaN(n)))+1;
+      const frag=await itemsXml(fresh,{id:()=>nid++,img:addImg,video:addVid});
+      if(frag){const tree=x.getElementsByTagNameNS(NP,'spTree')[0],fx=new DOMParser().parseFromString(`<p:spTree ${NS}>${frag}</p:spTree>`,'application/xml');
+        for(const c of [...fx.documentElement.children])tree.appendChild(x.importNode(c,true));changed=true}}
+    if(changed)out.set(pg.part,ser(x));
+    if(rx)out.set(rp,ser(rx));
+  }
+  if(exts.size){const ct=await parse('[Content_Types].xml'),root=ct.documentElement,have=new Set([...root.children].filter(c=>c.localName==='Default').map(c=>c.getAttribute('Extension').toLowerCase()));
+    for(const [e,t] of exts)if(!have.has(e)){const el=ct.createElementNS(root.namespaceURI,'Default');el.setAttribute('Extension',e);el.setAttribute('ContentType',t);root.insertBefore(el,root.firstChild)}
+    out.set('[Content_Types].xml',ser(ct))}
+  const list=ents.map(e=>out.has(e.name)?{name:e.name,data:out.get(e.name)}:e);
+  for(const [n,v] of out)if(!map.has(n))list.push({name:n,data:v});
+  return PZ.write([...list,...added],PPTX_MIME);
+}
+$('#bPptx').onclick=()=>{
+  const d=S.doc,base=d.pptx?d.pptx.name.replace(/\.pptx$/i,''):(d.name||'無題');
+  modal(`<h2>PowerPoint書き出し</h2>${F('ファイル名',`<input type="text" id="p-name" value="${esc(base)}.pptx">`)}
+    <div class="ok" id="p-msg"></div><div class="foot"><button id="p-cancel">閉じる</button><button class="primary" id="p-go">書き出し</button></div>`);
+  $('#p-cancel').onclick=closeModal;
+  $('#p-go').onclick=async()=>{let name=$('#p-name').value.trim()||'thinbook.pptx';if(!/\.pptx$/i.test(name))name+='.pptx';
+    $('#p-go').disabled=true;$('#p-msg').textContent='作成中…';
+    try{const blob=await exportPPTX();$('#p-msg').textContent=`完了：${(blob.size/1048576).toFixed(1)}MB`;await saveFile(name,blob)}
+    catch(err){console.error(err);$('#p-msg').textContent='書き出しに失敗しました：'+(err.message||err)}
+    $('#p-go').disabled=false};
+};
+
 /* ---------- boot ---------- */
 window.addEventListener('resize',()=>{clearTimeout(window.__rz);window.__rz=setTimeout(dirtyAll,150)});
 if(document.fonts)document.fonts.addEventListener('loadingdone',()=>{wcache.clear();lcache.clear();if(S.doc)dirtyAll()});
@@ -816,5 +1455,5 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>
   try{if(saved&&saved.doc){await loadProject(saved);return}}catch(e){}
   S.doc=sampleDoc();fitZoom();rebuild();renderAll();resetHistory();
 })();
-window.__thinbook={S,exportPDF,preflight,layout};
+window.__thinbook={S,exportPDF,preflight,layout,exportPPTX,importPPTX,parseOutline,applyOutline,createSlideDoc,setTheme,setLayout};
 </script>
