@@ -100,6 +100,12 @@ a{color:var(--accent)}
 .hpf>i{font-style:normal;text-align:center;padding:2px 0;color:#15181c}
 .hpf>i+i{border-left:1px dashed var(--line)}
 .hpf>i.b{color:var(--sub)}
+.dbx-list{display:flex;flex-direction:column;gap:4px;max-height:280px;overflow:auto}
+.dbx-g{font-size:11px;color:var(--sub);font-weight:700;margin-top:4px}
+.dbx-i{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;text-align:left;padding:6px 8px}
+.dbx-i b{font-family:var(--num);font-weight:400}
+.dbx-i span{font-family:var(--num);font-size:11px;color:var(--sub)}
+#dbx-msg.err{color:var(--danger)}
 #modal{position:fixed;inset:0;background:rgba(21,24,28,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 #modal[hidden]{display:none!important}
 .dlg{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:16px;width:min(420px,100%);display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow:auto}
@@ -155,7 +161,7 @@ a{color:var(--accent)}
 <div id="app">
   <header>
     <span class="logo">Thinbook</span>
-    <div class="grp"><button id="bNew">新規</button><button id="bOpen">開く</button><button id="bSave">保存</button></div>
+    <div class="grp"><button id="bNew">新規</button><button id="bOpen">開く</button><button id="bSave">保存</button><button id="bDbx" hidden>Dropbox</button></div>
     <div class="grp"><button id="bUndo" title="取り消し Ctrl+Z" aria-label="取り消し">↶</button><button id="bRedo" title="やり直し Ctrl+Shift+Z" aria-label="やり直し">↷</button></div>
     <div class="grp"><button id="bZo" aria-label="縮小">−</button><span id="zoomLbl">100%</span><button id="bZi" aria-label="拡大">＋</button><button id="bGuide" class="on">ガイド</button></div>
     <button id="bDw">自動台割</button>
@@ -1039,7 +1045,93 @@ $('#fOpen').addEventListener('change',async e=>{const f=e.target.files[0];e.targ
 function saveProject(){const j=JSON.stringify(projectData());saveFile((S.doc.name||'無題')+'.thinbook.json',new Blob([j],{type:'application/json'}))}
 $('#bSave').onclick=saveProject;
 
-/* ---------- export ---------- */
+/* ---------- Dropbox backup ---------- */
+const DBX='Dropbox',DROOT='/Thinbook',CH=600000;
+const DB={mcp:null,busy:false,folders:new Set(),imgs:null,lastJ:null,lastAt:0,auto:false,timer:0};
+try{if(window.claude&&window.claude.use)window.claude.use('mcp').then(m=>{if(!m)return;DB.mcp=m;$('#bDbx').hidden=false;
+  kvGet('dbxAuto').then(v=>{DB.auto=!!v;dbxSchedule()})}).catch(()=>{})}catch(e){}
+function dbxErr(e){const c=e&&e.code;
+  if(c==='needs_reauth')return 'Dropboxの再接続が必要です（claude.ai の設定 → コネクタ）';
+  if(c==='server_not_connected'||c==='server_not_found')return 'Dropboxが接続されていません（claude.ai の設定 → コネクタで追加）';
+  if(c==='selection_required')return '使用するDropboxコネクタを選択してください';
+  if(c==='not_in_manifest'||c==='approval_required'||c==='not_granted')return 'Dropboxへのアクセスが許可されていません';
+  if(c==='blocked_by_policy')return '組織のポリシーでDropboxが使用できません';
+  if(c==='server_unavailable'||c==='rate_limited')return 'Dropboxに接続できません。時間をおいて再度お試しください';
+  return 'Dropboxエラー：'+((e&&e.message)||c||'不明');}
+async function dbxCall(tool,input){const r=await DB.mcp.callTool(DBX,tool,input,{cache:false});let p=r.payload;
+  if(typeof p==='string'){try{p=JSON.parse(p)}catch(e){}}return p}
+async function dbxFolder(path){if(DB.folders.has(path))return;
+  try{await dbxCall('create_folder',{path})}catch(e){if(!(e&&e.code==='tool_error'&&/ALREADY_EXISTS|already exists|conflict/i.test(e.message||'')))throw e}
+  DB.folders.add(path)}
+async function dbxList(path){const out=[];let p;
+  try{p=await dbxCall('list_folder',{path,recursive:false,object_types:['file','folder'],max_results:600})}
+  catch(e){if(e&&e.code==='tool_error')return out;throw e}
+  for(;;){out.push(...((p&&p.entries)||[]));if(!(p&&p.has_more&&p.cursor))break;p=await dbxCall('list_folder',{cursor:p.cursor})}
+  return out}
+async function dbxText(path){const p=await dbxCall('fetch',{id:path});const t=p&&typeof p==='object'?p.text:p;if(typeof t!=='string')throw new Error('読み込めませんでした');return t}
+function chunks(s){const a=[];let i=0;while(i<s.length){let e=Math.min(i+CH,s.length);while(e<s.length&&e>i+1&&/\s/.test(s[e-1]+s[e]))e--;a.push(s.slice(i,e));i=e}return a.length?a:['']}
+function stamp(t){const d=new Date(t),z=n=>String(n).padStart(2,'0');return `${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`}
+function stampLabel(s){const m=/^(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d)$/.exec(s);return m?`${m[1]}/${m[2]}/${m[3]} ${m[4]}:${m[5]}`:s}
+function safeName(n){return (String(n||'無題').normalize('NFC').replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').replace(/\./g,'・').trim().slice(0,60))||'無題'}
+async function dbxBackup(progress){
+  if(!S.doc.id){S.doc.id=uid();S.last=JSON.stringify(S.doc);autosave()}
+  const used=new Set();S.doc.pages.forEach(p=>p.items.forEach(it=>{if(it.imageId&&S.images[it.imageId])used.add(it.imageId)}));
+  await dbxFolder(DROOT);await dbxFolder(DROOT+'/images');await dbxFolder(DROOT+'/backups');
+  const dir=DROOT+'/backups/'+S.doc.id;await dbxFolder(dir);
+  if(!DB.imgs)DB.imgs=new Set((await dbxList(DROOT+'/images')).map(e=>e.name));
+  const images={};let k=0;
+  for(const id of used){const im=S.images[id],parts=chunks(im.src);images[id]={w:im.w,h:im.h,name:im.name||'',parts:parts.length,len:im.src.length};
+    for(let i=0;i<parts.length;i++){const nm=`${id}.${i+1}.txt`;if(DB.imgs.has(nm))continue;
+      progress&&progress(`画像 ${k+1}/${used.size}`);await dbxCall('create_file',{path:DROOT+'/images/'+nm,content:parts[i]});DB.imgs.add(nm)}
+    k++}
+  const j=JSON.stringify({app:'thinbook',version:1,store:'dropbox',doc:S.doc,images}),parts=chunks(j),t=Date.now(),base=`${stamp(t)}_${safeName(S.doc.name)}`;
+  for(let i=0;i<parts.length;i++){progress&&progress('書類');await dbxCall('create_file',{path:`${dir}/${base}.${i+1}-${parts.length}.txt`,content:parts[i]})}
+  DB.lastJ=S.last;DB.lastAt=t;return base}
+async function dbxBackups(){const out=[];
+  for(const f of await dbxList(DROOT+'/backups')){if(f.object_type==='file')continue;
+    for(const e of await dbxList(DROOT+'/backups/'+f.name)){const m=/^(\d{8}-\d{6})_(.*)\.1-(\d+)\.txt$/.exec(e.name);
+      if(m)out.push({docId:f.name,stamp:m[1],name:m[2],n:+m[3],dir:DROOT+'/backups/'+f.name})}}
+  return out.sort((a,b)=>a.stamp<b.stamp?1:-1)}
+async function dbxRestore(b,progress){let j='';
+  for(let i=1;i<=b.n;i++){progress&&progress('書類');j+=await dbxText(`${b.dir}/${b.stamp}_${b.name}.${i}-${b.n}.txt`)}
+  const p=JSON.parse(j),images={};let k=0;const ids=Object.keys(p.images||{});
+  for(const id of ids){const m=p.images[id];let src='';progress&&progress(`画像 ${++k}/${ids.length}`);
+    for(let i=1;i<=m.parts;i++)src+=await dbxText(`${DROOT}/images/${id}.${i}.txt`);
+    src=src.replace(/\s+/g,'');if(m.len&&src.length!==m.len)throw new Error('画像データが壊れています：'+(m.name||id));
+    images[id]={src,w:m.w,h:m.h,name:m.name}}
+  await loadProject({app:'thinbook',version:1,doc:p.doc,images});DB.lastJ=S.last}
+function dbxSchedule(){clearInterval(DB.timer);if(!DB.auto||!DB.mcp)return;
+  DB.timer=setInterval(async()=>{if(DB.busy||exporting||!S.doc||S.last===DB.lastJ)return;DB.busy=true;
+    try{await dbxBackup()}catch(e){DB.auto=false;dbxSchedule();toast('自動バックアップを停止しました：'+dbxErr(e))}finally{DB.busy=false}},10*60*1000)}
+$('#bDbx').onclick=()=>{
+  modal(`<h2>Dropbox</h2>
+    <div class="btns"><button class="primary" id="d-up">バックアップ</button></div>
+    <label class="chk"><input type="checkbox" id="d-auto"${DB.auto?' checked':''}>自動バックアップ（10分ごと）</label>
+    <div id="dbx-msg" class="ok">${DB.lastAt?'最終バックアップ '+stampLabel(stamp(DB.lastAt)):''}</div>
+    <div class="sec"><h3>復元</h3><div class="dbx-list" id="d-list"><span class="ok">読み込み中…</span></div></div>
+    <div class="foot"><button id="d-close">閉じる</button></div>`);
+  const msg=(t,err)=>{const m=$('#dbx-msg');if(!m)return;m.textContent=t;m.className=err?'err':'ok'};
+  const lock=v=>{DB.busy=v;$$('#modal button:not(#d-close)').forEach(b=>b.disabled=v)};
+  $('#d-close').onclick=closeModal;
+  $('#d-auto').onchange=e=>{DB.auto=e.target.checked;kvSet('dbxAuto',DB.auto);dbxSchedule()};
+  const load=async()=>{const L=$('#d-list');try{const bs=await dbxBackups();if(!$('#d-list'))return;
+      if(!bs.length){L.innerHTML='<span class="ok">バックアップはありません</span>';return}
+      const cur=S.doc.id,groups=new Map();for(const b of bs){if(!groups.has(b.docId))groups.set(b.docId,[]);groups.get(b.docId).push(b)}
+      const order=[...groups.keys()].sort((a,b)=>(b===cur)-(a===cur));let h='';
+      for(const g of order){const items=groups.get(g);h+=`<div class="dbx-g">${esc(items[0].name)}</div>`;
+        h+=items.slice(0,20).map(b=>`<button class="dbx-i" data-k="${bs.indexOf(b)}"><b>${stampLabel(b.stamp)}</b><span>開く</span></button>`).join('')}
+      L.innerHTML=h;
+      L.querySelectorAll('.dbx-i').forEach(el=>el.onclick=async()=>{const b=bs[+el.dataset.k];
+        if(S.last!==DB.lastJ&&!confirm('現在の書類を閉じて、'+stampLabel(b.stamp)+' のバックアップを開きますか？'))return;
+        lock(true);try{await dbxRestore(b,t=>msg('読み込み中：'+t));closeModal();toast('開きました：'+b.name+' '+stampLabel(b.stamp))}
+        catch(e){msg(e&&e.code?dbxErr(e):(e.message||'開けませんでした'),true)}finally{lock(false)}})}
+    catch(e){if($('#d-list'))L.innerHTML=`<span class="ok">${esc(dbxErr(e))}</span>`}};
+  $('#d-up').onclick=async()=>{lock(true);try{await dbxBackup(t=>msg('送信中：'+t));msg('最終バックアップ '+stampLabel(stamp(DB.lastAt)));load()}
+    catch(e){msg(dbxErr(e),true)}finally{lock(false)}};
+  load();
+};
+
+/* ---------- PDF export ---------- */
 let exporting=false;
 const FMTS={pdf:'PDF（1ファイル）',pdfs:'PDF（1ページずつ）',png:'PNG画像',tif:'TIFF画像'};
 function hasBleedItems(){const d=S.doc,W=pw(d),H=d.trimH,e=0.01;return d.pages.some(p=>p.items.some(it=>it.type!=='text'&&(it.type!=='rect'||it.fill||it.stroke)&&(it.x<-e||it.y<-e||it.x+it.w>W+e||it.y+it.h>H+e)))}
