@@ -1053,7 +1053,7 @@ spreadsEl.addEventListener('drop',async e=>{
   let hd=null;try{hd=hp&&await hp;if(hd&&hd.kind!=='file')hd=null}catch(err){}
   select(pi,it.id);await placeImageInto(it,f,hd);
 });
-pagesEl.addEventListener('click',e=>{const c=e.target.closest('.thumb');if(!c)return;const i=+c.dataset.i;setPage(i);S.pageEls[i].el.scrollIntoView({block:'center',inline:'center',behavior:'smooth'})});
+pagesEl.addEventListener('click',e=>{const c=e.target.closest('.thumb');if(!c)return;const i=+c.dataset.i;setPage(i);S.pageEls[i].el.scrollIntoView({block:'center',inline:'center'})});
 function setTool(t){S.tool=t;$$('[data-tool]').forEach(b=>b.classList.toggle('on',b.dataset.tool===t));stage.style.cursor=t==='select'?'':'crosshair'}
 $$('[data-tool]').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
 function nudge(dx,dy){const it=selItem();if(!it)return;it.x=r1(it.x+dx);it.y=r1(it.y+dy);dirty(S.sel.page);commit();renderProps()}
@@ -1292,7 +1292,7 @@ function runPreflight(){
     :`<div class="ok">問題は見つかりませんでした</div>`;
 }
 $('#tab-pf').addEventListener('click',e=>{const b=e.target.closest('.pfi');if(!b)return;const x=PF[+b.dataset.k];if(x.page==null)return;setPage(x.page);
-  S.pageEls[x.page].el.scrollIntoView({block:'center',inline:'center',behavior:'smooth'});if(x.id)select(x.page,x.id)});
+  S.pageEls[x.page].el.scrollIntoView({block:'center',inline:'center'});if(x.id)select(x.page,x.id)});
 
 /* ---------- zoom ---------- */
 function zoomBy(k){S.zoom=clamp(S.zoom*k,0.2,6);rebuild();if(S.sel)drawOverlay(S.sel.page)}
@@ -2728,7 +2728,7 @@ function slideTexts(pg){const t={};for(const it of pg.items){if(!it.slot||it.slo
 function setLayout(pi,key){const d=S.doc,pg=d.pages[pi];const n=makeSlide(key,slideTexts(pg));n.id=pg.id;n.items.push(...pg.items.filter(x=>!x.lay));
   d.pages[pi]=n;S.sel=null;dirty(pi);commit();renderProps()}
 function addSlide(key){const d=S.doc;if(d.pptx){toast('PowerPointファイルではスライドを追加できません');return}const at=Math.min(S.page+1,d.pages.length);d.pages.splice(at,0,makeSlide(key));rebuild();commit();setPage(at);renderProps();
-  const pe=S.pageEls[at];if(pe)pe.el.scrollIntoView({block:'center',behavior:'smooth'})}
+  const pe=S.pageEls[at];if(pe)pe.el.scrollIntoView({block:'center'})}
 function setTheme(k){const d=S.doc;d.theme=k;d.pages.forEach(p=>themePage(p));dirtyAll();updateInfo();commit();renderDoc();renderProps()}
 function themeGrid(cur){return `<div class="themes">${Object.entries(THEMES).map(([k,t])=>`<button type="button" class="th${k===cur?' on':''}" data-th="${k}"><span class="sw" style="background:${t.bg}"><i style="background:${t.accent}"></i><b style="color:${t.ink};font-family:'${t.head}'">Aa</b></span>${esc(t.name)}</button>`).join('')}</div>`}
 const layThumbCache=new Map();
