@@ -387,6 +387,7 @@ textarea.outline{width:100%;min-height:260px;resize:vertical;line-height:1.6;fon
 .rlist{display:flex;flex-direction:column;gap:4px}.rlist button{display:grid;grid-template-columns:minmax(0,1fr) auto 64px;gap:8px;text-align:left}.rlist button .num{text-align:right}
 textarea#pNotes{width:100%;min-height:100px;resize:vertical;line-height:1.6}
 #app:not(.k-slide) .tabs .sl-only{display:none}
+#app.k-slide #spreads{flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:flex-start;align-content:center;min-width:max-content;min-height:100%;box-sizing:border-box}
 #tab-notes #pNotes{min-height:min(50vh,420px)}
 @media (max-width:820px){#tab-notes #pNotes{min-height:26dvh}}
 .kinds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
@@ -1123,9 +1124,9 @@ function touchEnd(e){if(!touches.delete(e.pointerId)||!pinch||touches.size>=2)re
   touches.clear()}
 stage.addEventListener('pointerup',touchEnd,true);stage.addEventListener('pointercancel',touchEnd,true);
 let scrT=0;
-stage.addEventListener('scroll',()=>{if(!S.single||pinch)return;clearTimeout(scrT);scrT=setTimeout(()=>{
-  const sr=stage.getBoundingClientRect(),c=sr.top+sr.height/2;let best=-1,bd=1e9;
-  S.pageEls.forEach((pe,i)=>{const r=pe.el.getBoundingClientRect();const dd=Math.abs(r.top+r.height/2-c);if(dd<bd){bd=dd;best=i}});
+stage.addEventListener('scroll',()=>{const hz=S.doc&&S.doc.kind==='slide';if((!S.single&&!hz)||pinch)return;clearTimeout(scrT);scrT=setTimeout(()=>{
+  const sr=stage.getBoundingClientRect(),c=hz?sr.left+sr.width/2:sr.top+sr.height/2;let best=-1,bd=1e9;
+  S.pageEls.forEach((pe,i)=>{const r=pe.el.getBoundingClientRect();const dd=Math.abs(hz?r.left+r.width/2-c:r.top+r.height/2-c);if(dd<bd){bd=dd;best=i}});
   if(best>=0&&best!==S.page){setPage(best);const t=S.thumbEls[best];if(t)t.scrollIntoView({block:'nearest',inline:'nearest'})}},120)},{passive:true});
 MQW.addEventListener('change',()=>{if(S.doc){rebuild();if(S.sel)drawOverlay(S.sel.page)}});
 MQ.addEventListener('change',()=>{S.single=MQ.matches;if(!S.single)$('#app').classList.remove('sheet');if(!S.doc)return;
@@ -1321,6 +1322,7 @@ $('#tab-pf').addEventListener('click',e=>{const b=e.target.closest('.pfi');if(!b
 /* ---------- zoom ---------- */
 function zoomBy(k){S.zoom=clamp(S.zoom*k,0.2,6);rebuild();if(S.sel)drawOverlay(S.sel.page)}
 function fitZoom(){const d=S.doc,h=stage.clientHeight||700,w=stage.clientWidth||900,pad=S.single?24:70;const ph=(d.trimH+2*d.bleed)*PX,spw=(S.single||d.kind!=='body'?pw(d)+2*d.bleed:(pw(d)+2*d.bleed)*2)*PX+(S.single?0:12);
+  if(d.kind==='slide'){S.zoom=clamp(Math.min((h-(S.single?50:90))/ph,(w-pad)*0.84/spw),0.2,S.single?3:1.5);return}
   S.zoom=S.single?clamp((w-pad)/spw,0.2,3):clamp(Math.min((h-90)/ph,(w-pad)/spw,1.5),0.2,1.5)}
 $('#bZi').onclick=()=>zoomBy(1.25);$('#bZo').onclick=()=>zoomBy(0.8);
 $('#bGuide').onclick=()=>{S.guides=!S.guides;$('#bGuide').classList.toggle('on',S.guides);dirtyAll()};
