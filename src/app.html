@@ -386,6 +386,10 @@ textarea.outline{width:100%;min-height:260px;resize:vertical;line-height:1.6;fon
 .rmemo{white-space:pre-wrap;color:var(--sub)}
 .rlist{display:flex;flex-direction:column;gap:4px}.rlist button{display:grid;grid-template-columns:minmax(0,1fr) auto 64px;gap:8px;text-align:left}.rlist button .num{text-align:right}
 textarea#pNotes{width:100%;min-height:100px;resize:vertical;line-height:1.6}
+#app:not(.k-slide) .tabs .sl-only{display:none}
+#tab-notes #pNotes{min-height:min(50vh,420px)}
+.kinds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.kinds button.on{background:var(--bg);color:var(--ink);border-color:var(--accent);outline:1px solid var(--accent)}
 @media (max-width:820px){
   .pmain{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,55%) minmax(0,1fr)}
   .pside{border-left:0;border-top:1px solid var(--line)}
@@ -426,10 +430,12 @@ textarea#pNotes{width:100%;min-height:100px;resize:vertical;line-height:1.6}
   <aside id="right">
     <nav class="tabs">
       <button data-tab="props" class="on">属性</button>
+      <button data-tab="notes" class="sl-only">ノート</button>
       <button data-tab="doc">書類</button>
       <button data-tab="pf">プリフライト <span id="pfBadge"></span></button>
     </nav>
     <div id="tab-props" class="tab"></div>
+    <div id="tab-notes" class="tab" hidden></div>
     <div id="tab-doc" class="tab" hidden></div>
     <div id="tab-pf" class="tab" hidden></div>
   </aside>
@@ -788,7 +794,7 @@ function rebuild(){
   $('#zoomLbl').textContent=Math.round(S.zoom*100)+'%';$('#pLbl').textContent=d.kind==='slide'?'スライド':'ページ';
   updateInfo();schedule();
 }
-function updateInfo(){const d=S.doc;const sl=d.kind==='slide';$('#app').classList.toggle('k-slide',sl);$('#bOutline').hidden=!sl;$('#bPptx').classList.toggle('primary',sl);$('#bExport').classList.toggle('primary',!sl);$('#bExport').textContent=sl?'PDF書き出し':'入稿データ書き出し';
+function updateInfo(){const d=S.doc;const sl=d.kind==='slide';$('#app').classList.toggle('k-slide',sl);if(S.tab==='notes'){if(sl)renderNotes();else{const sh=$('#app').classList.contains('sheet');showTab('props');if(!sh)setSheet(false)}}$('#bOutline').hidden=!sl;$('#bPptx').classList.toggle('primary',sl);$('#bExport').classList.toggle('primary',!sl);$('#bExport').textContent=sl?'PDF書き出し':'入稿データ書き出し';
   if(sl){$('#docInfo').textContent=[d.name,'スライド 16:9',(THEMES[d.theme]||{}).name,d.pages.length+'枚'].filter(Boolean).join(' ・ ');return}
   const sz=Object.entries(SIZES).find(([k,v])=>v[0]===d.trimW&&v[1]===d.trimH);
   $('#docInfo').textContent=[d.name,(d.kind==='cover'?'表紙 ':'')+(sz?sz[0]+' ':'')+d.trimW+'×'+d.trimH+'mm'+(d.kind==='cover'?' 背幅'+d.spine+'mm':''),d.binding==='right'?'右綴じ':'左綴じ',d.color==='mono'?'モノクロ':'カラー',d.kind==='cover'?'':d.pages.length+'ページ'].filter(Boolean).join(' ・ ')}
@@ -830,7 +836,7 @@ function drawOverlay(i){
 function findItem(sel){const pg=S.doc.pages[sel.page];return pg&&pg.items.find(x=>x.id===sel.id)}
 function selItem(){return S.sel?findItem(S.sel):null}
 function select(pi,id){const prev=S.sel;S.sel=id?{page:pi,id}:null;if(prev&&S.pageEls[prev.page])drawOverlay(prev.page);if(S.sel)drawOverlay(pi);renderProps()}
-function setPage(i){if(S.page===i)return;const o=S.page;S.page=i;if(S.thumbEls[o])S.thumbEls[o].classList.remove('cur');if(S.thumbEls[i])S.thumbEls[i].classList.add('cur');if(S.tab==='props'&&!S.sel)renderProps()}
+function setPage(i){if(S.page===i)return;const o=S.page;S.page=i;if(S.thumbEls[o])S.thumbEls[o].classList.remove('cur');if(S.thumbEls[i])S.thumbEls[i].classList.add('cur');if(S.tab==='props'&&!S.sel)renderProps();if(S.tab==='notes')renderNotes()}
 
 /* ---------- history & persistence ---------- */
 let saveT=0;
@@ -1121,7 +1127,7 @@ MQ.addEventListener('change',()=>{S.single=MQ.matches;if(!S.single)$('#app').cla
   requestAnimationFrame(()=>{fitZoom();rebuild();if(S.sel)drawOverlay(S.sel.page);const pe=S.pageEls[S.page];if(pe)pe.el.scrollIntoView({block:'start',inline:'center'})})});
 
 /* ---------- inspector ---------- */
-function showTab(t){S.tab=t;$$('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));for(const k of['props','doc','pf'])$('#tab-'+k).hidden=k!==t;if(t==='doc')renderDoc();if(t==='pf')runPreflight();if(t==='props')renderProps();if(S.single)setSheet(true)}
+function showTab(t){S.tab=t;$$('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));for(const k of['props','notes','doc','pf'])$('#tab-'+k).hidden=k!==t;if(t==='doc')renderDoc();if(t==='notes')renderNotes();if(t==='pf')runPreflight();if(t==='props')renderProps();if(S.single)setSheet(true)}
 function setSheet(on){const a=$('#app');if(a.classList.contains('sheet')===on)return;a.classList.toggle('sheet',on);$$('.tabs button').forEach(b=>b.setAttribute('aria-expanded',on&&b.dataset.tab===S.tab));
   if(on&&S.sel)requestAnimationFrame(()=>{const bx=S.pageEls[S.sel.page]&&S.pageEls[S.sel.page].ov.querySelector('.selbox');if(bx)bx.scrollIntoView({block:'nearest',inline:'nearest'})})}
 $$('.tabs button').forEach(b=>b.onclick=()=>{if(S.single&&S.tab===b.dataset.tab&&$('#app').classList.contains('sheet'))setSheet(false);else showTab(b.dataset.tab)});
@@ -1323,7 +1329,8 @@ $('#modal').addEventListener('pointerdown',e=>{if(e.target.id==='modal'&&!export
 $('#bNew').onclick=()=>{
   const dlg=modal(`<h2>新規書類</h2>
     <span class="n-book">${F('印刷所',`<select id="n-pr">${Object.entries(PRINTERS).map(([k,v])=>`<option value="${k}"${k===(S.doc&&S.doc.printer)?' selected':''}>${esc(v.name)}</option>`).join('')}</select>`)}</span>
-    <div class="row">${F('種類','<select id="n-kind"><option value="body">本文</option><option value="cover">表紙（表1・背・表4）</option><option value="slide">スライド（16:9）</option></select>')}
+    <div class="kinds" id="n-kinds"><button data-k="body" class="on">本文</button><button data-k="cover">表紙</button><button data-k="slide">スライド 16:9</button></div><select id="n-kind" hidden><option value="body">本文</option><option value="cover">表紙（表1・背・表4）</option><option value="slide">スライド（16:9）</option></select>
+    <div class="row">
     <span class="n-book">${F('仕上がりサイズ',`<select id="n-size">${Object.keys(SIZES).map(k=>`<option${k==='A5'?' selected':''}>${k}</option>`).join('')}<option value="custom">カスタム（変形）</option></select>`)}</span>
     <span class="n-book">${F('向き','<select id="n-ori"><option value="p">縦長</option><option value="l">横長</option></select>')}</span>
     <span class="n-book"></span>
@@ -1335,7 +1342,8 @@ $('#bNew').onclick=()=>{
     <div id="n-slide" class="sec" hidden><h3>テーマ</h3>${themeGrid('blue')}<div class="row">${F('構成のひな形',`<select id="n-flow">${Object.keys(FLOWS).map(k=>`<option>${k}</option>`).join('')}<option value="">白紙</option></select>`)}</div></div>
     <div class="foot"><button id="n-cancel">キャンセル</button><button class="primary" id="n-ok">作成</button></div>`);
   const sync=()=>{const k=$('#n-size').value;if(k!=='custom'){let [w,h]=SIZES[k];if($('#n-ori').value==='l')[w,h]=[h,w];$('#n-w').value=w;$('#n-h').value=h}const kv=$('#n-kind').value,cv=kv==='cover',sl=kv==='slide';$('#n-pw').hidden=cv||sl;$('#n-sw').hidden=!cv;$$('.n-book').forEach(x=>x.hidden=sl);$('#n-slide').hidden=!sl;dlg.classList.toggle('owide',sl)};
-  $('#n-size').onchange=sync;$('#n-kind').onchange=sync;$('#n-ori').onchange=sync;
+  $('#n-size').onchange=sync;$('#n-kind').onchange=()=>{$$('#n-kinds button').forEach(x=>x.classList.toggle('on',x.dataset.k===$('#n-kind').value));sync()};
+  $('#n-kinds').onclick=e=>{const b=e.target.closest('button');if(!b)return;$('#n-kind').value=b.dataset.k;$('#n-kind').onchange()};$('#n-ori').onchange=sync;
   for(const x of['#n-w','#n-h'])$(x).addEventListener('input',()=>{$('#n-size').value='custom'});
   $('#n-slide').onclick=e=>{const b=e.target.closest('.th');if(!b)return;$$('#n-slide .th').forEach(x=>x.classList.toggle('on',x===b))};
   $('#n-cancel').onclick=closeModal;
@@ -2892,17 +2900,20 @@ function drawSugThumbs(root,pi){
 }
 function renderSlideProps(el){
   const d=S.doc,pg=d.pages[S.page];
-  const tts=typeof speak==='function';
-  const notes=`<div class="sec"><h3>発表者ノート</h3><textarea id="pNotes" spellcheck="false">${esc(pg.notes||'')}</textarea>${tts?'<div class="btns"><button id="pTts">読み上げ</button></div>':''}</div>`;
-  const bindNotes=()=>{$('#pNotes').oninput=e=>{pg.notes=e.target.value;clearTimeout(commitT);commitT=setTimeout(commit,600)};
-    if(tts)$('#pTts').onclick=()=>speak(pg.notes||'',(d.pres&&d.pres.lang)||'ja')};
   el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1} のレイアウト案</h3><div class="lays sugs" id="laySug">${sugBtns(S.page)}</div></div>
     <div class="sec"><h3>すべてのレイアウト</h3><div class="lays" id="layCur">${layBtns(pg.layout)}</div></div>`+
-    (d.pptx?'':`<div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`)+notes;
-  drawLayThumbs(el,slideTheme(pg));drawSugThumbs(el,S.page);bindNotes();
+    (d.pptx?'':`<div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`);
+  drawLayThumbs(el,slideTheme(pg));drawSugThumbs(el,S.page);
   $('#laySug').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
   $('#layCur').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
   if(!d.pptx)$('#layAdd').onclick=e=>{const b=e.target.closest('.lay');if(b)addSlide(b.dataset.lay)};
+}
+function renderNotes(){
+  const el=$('#tab-notes'),d=S.doc;if(!d||d.kind!=='slide'){el.innerHTML='';return}
+  const pg=d.pages[S.page],tts=typeof speak==='function',lang=(d.pres&&d.pres.lang)||'ja';
+  el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1}</h3><textarea id="pNotes" spellcheck="false" lang="${lang==='en'?'en':'ja'}">${esc(pg.notes||'')}</textarea>${tts?'<div class="btns"><button id="pTts">読み上げ</button></div>':''}</div>`;
+  $('#pNotes').oninput=e=>{pg.notes=e.target.value;clearTimeout(commitT);commitT=setTimeout(commit,600)};
+  if(tts)$('#pTts').onclick=()=>speak(pg.notes||'',lang);
 }
 function renderSlideDoc(){
   const d=S.doc;
