@@ -1017,12 +1017,16 @@ spreadsEl.addEventListener('pointerdown',e=>{
   if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
   if(S.tool==='select'){
     if(e.target.classList.contains('h')){const it=selItem();S.drag={mode:'resize',pi,id:it.id,dir:e.target.dataset.d,p0:p,o:{x:it.x,y:it.y,w:it.w,h:it.h}}}
-    else{const it=hit(pi,p);if(it){select(pi,it.id);S.drag={mode:'move',pi,id:it.id,p0:p,o:{x:it.x,y:it.y,w:it.w,h:it.h}}}else{select(null);if(e.pointerType!=='touch')return;S.drag={mode:'pan',x0:e.clientX,y0:e.clientY,sl:stage.scrollLeft,st:stage.scrollTop}}}
+    else{const it=hit(pi,p),touch=e.pointerType==='touch';
+      if(touch&&!(it&&S.sel&&S.sel.page===pi&&S.sel.id===it.id)){S.drag={mode:'pan',pi,tap:it?it.id:null,x0:e.clientX,y0:e.clientY,sl:stage.scrollLeft,st:stage.scrollTop,moved:false}}
+      else if(it){select(pi,it.id);S.drag={mode:'move',pi,id:it.id,p0:p,o:{x:it.x,y:it.y,w:it.w,h:it.h},x0:e.clientX,y0:e.clientY,live:!touch}}
+      else{select(null);return}}
   }else S.drag={mode:'create',pi,p0:p,rect:null};
   pg.setPointerCapture(e.pointerId);e.preventDefault();
 });
 spreadsEl.addEventListener('pointermove',e=>{
-  const D=S.drag;if(!D)return;if(D.mode==='pan'){stage.scrollLeft=D.sl-(e.clientX-D.x0);stage.scrollTop=D.st-(e.clientY-D.y0);return}const pe=S.pageEls[D.pi];const p=toMM(e,pe.el);let dx=p.x-D.p0.x,dy=p.y-D.p0.y;
+  const D=S.drag;if(!D)return;if(D.mode==='pan'){if(!D.moved&&Math.hypot(e.clientX-D.x0,e.clientY-D.y0)>8)D.moved=true;if(D.moved){stage.scrollLeft=D.sl-(e.clientX-D.x0);stage.scrollTop=D.st-(e.clientY-D.y0)}return}
+  if(D.mode==='move'&&!D.live){if(Math.hypot(e.clientX-D.x0,e.clientY-D.y0)<=8)return;D.live=true}const pe=S.pageEls[D.pi];const p=toMM(e,pe.el);let dx=p.x-D.p0.x,dy=p.y-D.p0.y;
   if(D.mode==='create'){const x=Math.min(p.x,D.p0.x),y=Math.min(p.y,D.p0.y);D.rect={x,y,w:Math.abs(dx),h:Math.abs(dy)};drawOverlay(D.pi);return}
   const it=findItem({page:D.pi,id:D.id});if(!it)return;const o=D.o,L=snapLines(D.pi);
   if(D.mode==='move'){
@@ -1037,7 +1041,8 @@ spreadsEl.addEventListener('pointermove',e=>{
   dirty(D.pi);
 });
 function endDrag(){
-  const D=S.drag;if(!D)return;S.drag=null;if(D.mode==='pan')return;
+  const D=S.drag;if(!D)return;S.drag=null;if(D.mode==='pan'){if(!D.moved)select(D.tap?D.pi:null,D.tap);return}
+  if(D.mode==='move'&&!D.live)return;
   if(D.mode==='create'){
     let r=D.rect;if(!r||r.w<2||r.h<2){const W=S.tool==='text'?40:40;r={x:D.p0.x,y:D.p0.y,w:W,h:W}}
     r={x:r1(r.x),y:r1(r.y),w:r1(r.w),h:r1(r.h)};
@@ -1051,7 +1056,7 @@ function endDrag(){
   }
   commit();renderProps();
 }
-spreadsEl.addEventListener('pointerup',endDrag);spreadsEl.addEventListener('pointercancel',endDrag);
+spreadsEl.addEventListener('pointerup',endDrag);spreadsEl.addEventListener('pointercancel',()=>{if(S.drag&&S.drag.mode==='pan'){S.drag=null;return}endDrag()});
 spreadsEl.addEventListener('dblclick',e=>{if(e.target.classList.contains('ined'))return;const it=selItem();if(it&&it.type==='text')editText(S.sel.page,it);else if(it&&it.type==='image')pickImage(it);else if(it&&it.type==='video'){if(it.mediaId)playVideo(it);else{vidTarget=it;$('#fVid').click()}}});
 stage.addEventListener('pointerdown',e=>{if(e.target===stage||e.target===spreadsEl||e.target.classList.contains('spread')||e.target.classList.contains('slot'))select(null)});
 let imgTarget=null;
