@@ -108,8 +108,8 @@ a{color:var(--accent)}
 #dbx-msg.err{color:var(--danger)}
 #neta{grid-column:1/-1;grid-row:2;display:grid;grid-template-columns:260px minmax(0,1fr);min-height:0;background:var(--bg)}
 #app.neta-on>#left,#app.neta-on>#stage,#app.neta-on>#right{display:none}
-#app.neta-on header>*:not(.logo):not(#bNeta){display:none}
-#app.neta-on #bNeta{margin-left:auto}
+#app.neta-on header>*:not(#gApps){display:none}
+#app.neta-on #gApps>:not(#bNeta){display:none}
 #nList{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 #nList .ph{border-top:0}
 .nbar{display:flex;flex-direction:column;gap:6px;padding:8px}
@@ -136,9 +136,13 @@ a{color:var(--accent)}
 .nact{display:flex;flex-wrap:wrap;gap:6px;justify-content:space-between}
 .nempty{color:var(--sub);padding:16px}
 @media (max-width:820px){
-  #app.neta-on{grid-template-rows:auto auto}
-  #neta{grid-template-columns:minmax(0,1fr)}
+  #app.neta-on{grid-template-rows:44px minmax(0,1fr)}
+  #neta{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto;align-content:start;overflow:auto}
+  #nEdit{overflow:visible}
   #nList{border-right:0;border-bottom:1px solid var(--line)}
+  #nList .ph{flex-direction:row;justify-content:space-between;border-left:0;padding:6px 8px}
+  #nList .ph>span:first-child{display:inline}
+  #nList .ph .grp{flex-direction:row}
   #nItems{max-height:40vh}
   #nEdit{padding-left:max(16px,env(safe-area-inset-left,0px))}
 }
@@ -278,15 +282,13 @@ a{color:var(--accent)}
   <header>
     <span class="logo">Thinbook</span>
     <div class="grp"><button id="bNew">新規</button><button id="bOpen">開く</button><button id="bSave">保存</button><button id="bDbx" hidden>Dropbox</button></div>
-    <button id="bXl">Excel</button>
     <div class="grp"><button id="bUndo" title="取り消し Ctrl+Z" aria-label="取り消し">↶</button><button id="bRedo" title="やり直し Ctrl+Shift+Z" aria-label="やり直し">↷</button></div>
     <div class="grp"><button id="bZo" aria-label="縮小">−</button><span id="zoomLbl">100%</span><button id="bZi" aria-label="拡大">＋</button><button id="bGuide" class="on">ガイド</button></div>
-    <button id="bDw">自動台割</button>
     <span id="docInfo"></span>
+    <div class="grp" id="gApps"><button id="bNeta">ネタ帳</button><button id="bSales">頒布</button><button id="bXl">Excel</button></div>
+    <button id="bDw">自動台割</button>
     <button id="bHome">家庭用印刷</button>
-    <button id="bNeta">ネタ帳</button>
     <button id="bExport" class="primary">入稿データ書き出し</button>
-    <button id="bSales">頒布</button>
   </header>
   <aside id="left">
     <div class="tools">
@@ -1714,7 +1716,7 @@ function svHome(){const{up,past}=svSorted();
     const meta=[e.venue&&esc(e.venue),e.space&&'スペース '+esc(e.space),isPast?'売上 '+yen(sold):svDue('申込締切',e.applyDue)+svDue('入稿締切',e.submitDue)].filter(Boolean).join('');
     const n=svDays(e.date);
     return`<button class="sv-ev" data-ev="${e.id}"><span class="d">${svYMD(e.date)}</span><span class="n">${esc(e.name||'無題のイベント')}</span><span class="num">${!isPast&&n!=null?(n===0?'今日':'あと'+n+'日'):''}</span>${meta?`<span class="m">${meta}</span>`:''}</button>`};
-  return`<div class="svh"><button data-act="close">閉じる</button><h2>イベント</h2><button class="primary" data-act="add">追加</button></div>
+  return`<div class="svh"><button data-act="close">← 冊子</button><h2>イベント</h2><button class="primary" data-act="add">追加</button></div>
   <div class="svb">
     <section class="sv-sec"><h3>予定</h3>${up.length?up.map(e=>row(e,false)).join(''):'<div class="sv-empty">なし</div>'}</section>
     ${past.length?`<section class="sv-sec"><h3>終了</h3>${past.map(e=>row(e,true)).join('')}</section>`:''}
@@ -1883,7 +1885,7 @@ function netaToBook(n){
     netaShow(false);fitZoom();rebuild();renderAll();resetHistory();toast('ネタから書類を作成しました');
   };
 }
-function netaShow(on){N8.open=on;$('#app').classList.toggle('neta-on',on);netaEl.hidden=!on;$('#bNeta').classList.toggle('on',on);
+function netaShow(on){N8.open=on;$('#app').classList.toggle('neta-on',on);netaEl.hidden=!on;$('#bNeta').textContent=on?'← 冊子':'ネタ帳';
   if(on){if(!netaCur())N8.cur=(N8.list[0]||{}).id||null;netaRenderList();netaRenderEdit()}else{dirtyAll()}}
 $('#bNeta').onclick=()=>netaShow(!N8.open);
 $('#nAdd').onclick=netaNew;
