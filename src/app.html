@@ -680,7 +680,7 @@ function drawItem(ctx,it,ch,preview){
     if(it.fill){ctx.fillStyle=col(it.fill,ch);ctx.fillRect(it.x,it.y,it.w,it.h)}
     if(it.stroke&&it.sw>0){ctx.strokeStyle=col(it.stroke,ch);ctx.lineWidth=it.sw;ctx.strokeRect(it.x,it.y,it.w,it.h)}
   }else if(it.type==='image'){
-    const im=it.imageId&&S.images[it.imageId];
+    const im=it.imageId&&S.images[it.imageId];if(im&&im.pending)return;
     if(im&&im.img){
       const sc=imgScale(it,im),dw=it.fit==='stretch'?it.w:im.w*sc,dh=it.fit==='stretch'?it.h:im.h*sc;
       ctx.save();ctx.beginPath();ctx.rect(it.x,it.y,it.w,it.h);ctx.clip();
@@ -849,22 +849,21 @@ function projectData(file){const used=new Set(),mu=new Set();S.doc.pages.forEach
   const images={};for(const id of used){const im=S.images[id];if(!im)continue;
     if(fromPptx&&im.part)images[id]={part:im.part,w:im.w,h:im.h,name:im.name||''};
     else images[id]=im.blob?{blob:im.blob,w:im.w,h:im.h,name:im.name||''}:{src:im.src,w:im.w,h:im.h,name:im.name||''}}
-  const o={app:'thinbook',version:1,doc:S.doc,images};if(S.doc.pptx&&S.pptxSrc&&file)o.pptxSrc=u8b64(S.pptxSrc);
+  const o={app:'thinbook',version:1,doc:S.doc,images};if(S.doc.pptx&&S.pptxSrc instanceof Uint8Array&&file)o.pptxSrc=u8b64(S.pptxSrc);
   o.media={};for(const id of mu){const m=S.media[id];if(!m)continue;o.media[id]=fromPptx&&m.part?{part:m.part,name:m.name,type:m.type}:{blob:m.blob,name:m.name,type:m.type}}return o}
 function autosave(){kvSet('project',projectData())}
 async function loadProject(p){
   if(!p||!['thinbook','kumi'].includes(p.app)||!p.doc)throw new Error('Thinbookのプロジェクトファイルではありません');
   S.media={};for(const [id,m] of Object.entries(p.media||{})){const blob=m.blob||(m.data?new Blob([b64u8(m.data)],{type:m.type}):null);if(blob)S.media[id]={blob,name:m.name,type:m.type}}
   S.images={};S.pptxSrc=p.pptxSrc?(typeof p.pptxSrc==='string'?b64u8(p.pptxSrc):new Uint8Array(p.pptxSrc)):null;
-  if(!S.pptxSrc&&p.doc.pptx){const r=await kvGet('pptxsrc');if(r&&r.blob&&r.key===p.doc.pptx.key)S.pptxSrc=new Uint8Array(await r.blob.arrayBuffer())}
-  const zmap=S.pptxSrc&&p.doc.pptx?new Map(PZ.read(S.pptxSrc).map(e=>[e.name,e])):null;
-  const fromPart=async(part,type)=>{const e=zmap&&zmap.get(part);return e?new Blob([await PZ.data(e)],{type}):null};
-  for(const [id,m] of Object.entries(S.media)){const pm=(p.media||{})[id];if(!m.blob&&pm&&pm.part){const b=await fromPart(pm.part,pm.type);if(b)S.media[id]={blob:b,name:pm.name,type:pm.type,part:pm.part}}}
-  for(const [id,m] of Object.entries(p.media||{}))if(m.part&&!S.media[id]){const b=await fromPart(m.part,m.type);if(b)S.media[id]={blob:b,name:m.name,type:m.type,part:m.part}}
+  if(!S.pptxSrc&&p.doc.pptx){const r=await kvGet('pptxsrc');if(r&&r.blob&&r.key===p.doc.pptx.key)S.pptxSrc=r.blob}
+  S.pptxZip=null;try{if(S.pptxSrc&&p.doc.pptx)S.pptxZip=new Map((await PZ.open(S.pptxSrc)).map(e=>[e.name,e]))}catch(e){}
+  for(const [id,m] of Object.entries(p.media||{}))if(m.part&&S.pptxZip&&S.pptxZip.get(m.part))S.media[id]={blob:null,size:S.pptxZip.get(m.part).usize,name:m.name,type:m.type,part:m.part};
   await Promise.all(Object.entries(p.images||{}).map(async([id,m])=>{try{
-    if(m.part){const ext=m.part.split('.').pop().toLowerCase(),b=await fromPart(m.part,'image/'+({jpg:'jpeg',svg:'svg+xml'}[ext]||ext));if(b){const im=await proxyImage(b,m.name);im.part=m.part;S.images[id]=im}return}
+    if(m.part){if(S.pptxZip&&S.pptxZip.get(m.part))S.images[id]={part:m.part,name:m.name,w:m.w||1,h:m.h||1,pending:true};return}
     const src=m.blob?URL.createObjectURL(m.blob):m.src;const img=await loadImg(src);S.images[id]={...m,src,img}}catch(e){}}));
   S.doc=p.doc;S.lmap=null;S.sel=null;S.page=0;fitZoom();rebuild();renderAll();resetHistory();
+  if(S.pptxZip)setTimeout(loadPendingImages,0);
 }
 let dlCap=null;
 try{if(window.claude&&window.claude.use)dlCap=window.claude.use('downloads')}catch(e){}
@@ -1169,7 +1168,7 @@ function renderProps(){
       ${im?`<div class="ok">${esc(im.name||'')} ${im.w}×${im.h}px ・ <span style="color:${ppi<300?'var(--warn)':'inherit'}">実効 ${ppi}ppi</span></div>`:''}
       ${im&&handles[it.imageId]?(im.lost?`<div class="btns"><button id="bRelink">リンクを再接続</button></div>`:`<div class="ok">リンク中：保存すると自動で更新</div>`):''}</div>`;
   }else if(it.type==='video'){const m=S.media[it.mediaId];
-    h+=`<div class="sec"><h3>動画</h3><div class="btns"><button id="bVPick">${m?'動画を差し替え':'動画を選択'}</button>${m?'<button id="bVPlay">再生</button>':''}</div>${m?`<div class="ok">${esc(m.name||'')} ・ ${(m.blob.size/1048576).toFixed(1)}MB</div>`:''}</div>`;
+    h+=`<div class="sec"><h3>動画</h3><div class="btns"><button id="bVPick">${m?'動画を差し替え':'動画を選択'}</button>${m?'<button id="bVPlay">再生</button>':''}</div>${m?`<div class="ok">${esc(m.name||'')} ・ ${((m.blob?m.blob.size:m.size||0)/1048576).toFixed(1)}MB</div>`:''}</div>`;
   }else if(it.type==='rect'){
     h+=`<div class="sec"><h3><label class="chk"><input type="checkbox" data-null="fill" ${it.fill?'checked':''}> 塗り</label></h3>${it.fill?colorFields('fill',it.fill):''}</div>
     <div class="sec"><h3><label class="chk"><input type="checkbox" data-null="stroke" ${it.stroke?'checked':''}> 線</label></h3>${it.stroke?colorFields('stroke',it.stroke)+`<div class="row">${F('線幅（mm）',N('sw',it.sw,0.05,'min="0"'))}</div>`:''}</div>`;
@@ -1342,7 +1341,7 @@ $('#bNew').onclick=()=>{
   $('#n-ok').onclick=()=>{if($('#n-kind').value==='slide'){const th=$('#n-slide .th.on');createSlideDoc(th?th.dataset.th:'blue',$('#n-flow').value);closeModal();openOutline();return}
     const w=+$('#n-w').value,h=+$('#n-h').value;if(!(w>=20&&h>=20)){toast('サイズを20mm以上で入力してください');return}
     const kind=$('#n-kind').value;S.doc=newDoc({kind,name:'無題',printer:$('#n-pr').value,w,h,binding:$('#n-bind').value,color:$('#n-col').value,pages:+$('#n-pages').value,spine:+$('#n-spine').value});
-    S.images={};S.media={};S.pptxSrc=null;S.sel=null;S.page=0;closeModal();fitZoom();rebuild();renderAll();resetHistory()};
+    S.images={};S.media={};S.pptxSrc=null;S.pptxZip=null;S.sel=null;S.page=0;closeModal();fitZoom();rebuild();renderAll();resetHistory()};
 };
 $('#bOpen').onclick=()=>$('#fOpen').click();
 $('#fOpen').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;if(/\.xlsx$/i.test(f.name)){XL.openFile(f);return}try{if(/\.pptx$/i.test(f.name))await importPPTX(f);else await loadProject(JSON.parse(await f.text()));toast('開きました：'+f.name)}catch(err){toast(err.message||'開けませんでした')}});
@@ -3061,7 +3060,7 @@ $('#bOutline').onclick=openOutline;
 function createSlideDoc(th,flow){
   const d=newDoc({kind:'slide',name:'無題',w:SW,h:SH,binding:'left',color:'cmyk',pages:1});
   d.bleed=0;d.margins={top:SM,bottom:SM,inner:SM,outer:SM};d.nombre.mode='none';d.theme=th;
-  S.doc=d;S.images={};S.media={};S.pptxSrc=null;S.sel=null;S.page=0;
+  S.doc=d;S.images={};S.media={};S.pptxSrc=null;S.pptxZip=null;S.sel=null;S.page=0;
   d.pages=parseOutline(FLOWS[flow]||'タイトル').map(({key,t})=>makeSlide(key,t));
   fitZoom();rebuild();renderAll();resetHistory();
 }
@@ -3071,38 +3070,64 @@ const PZ=(()=>{
   const T=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xedb88320^(c>>>1):c>>>1;T[n]=c>>>0}
   const crc=u=>{let c=0xffffffff;for(let i=0;i<u.length;i++)c=T[(c^u[i])&255]^(c>>>8);return(c^0xffffffff)>>>0};
   const pipe=async(u8,s)=>new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(s)).arrayBuffer());
-  function read(u8){
-    const dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);let e=u8.length-22;while(e>=0&&dv.getUint32(e,true)!==0x06054b50)e--;
+  const ab=async(b,a,z)=>new Uint8Array(await b.slice(a,z).arrayBuffer());
+  // 目次（セントラルディレクトリ）だけを読む。本体は必要になったときに切り出す
+  async function open(src){
+    if(!(src instanceof Blob))src=new Blob([src]);
+    const size=src.size,tl=Math.min(size,65557),tail=await ab(src,size-tl,size),tv=new DataView(tail.buffer);
+    let e=tail.length-22;while(e>=0&&tv.getUint32(e,true)!==0x06054b50)e--;
     if(e<0)throw new Error('PowerPointファイルとして読めません');
-    const n=dv.getUint16(e+10,true);let p=dv.getUint32(e+16,true);const out=[],td=new TextDecoder();
+    const n=tv.getUint16(e+10,true),cdSize=tv.getUint32(e+12,true),cdOff=tv.getUint32(e+16,true);
+    if(n===0xffff||cdOff===0xffffffff)throw new Error('4GBを超えるファイルには対応していません');
+    const cd=await ab(src,cdOff,cdOff+cdSize),dv=new DataView(cd.buffer),out=[],td=new TextDecoder();let p=0;
     for(let k=0;k<n;k++){
       if(dv.getUint32(p,true)!==0x02014b50)throw new Error('ファイルが壊れています');
-      const method=dv.getUint16(p+10,true),crc=dv.getUint32(p+16,true),csize=dv.getUint32(p+20,true),usize=dv.getUint32(p+24,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
-      const name=td.decode(u8.subarray(p+46,p+46+nl));const ds=lo+30+dv.getUint16(lo+26,true)+dv.getUint16(lo+28,true);
-      if(csize===0xffffffff||lo===0xffffffff)throw new Error('4GBを超えるファイルには対応していません');out.push({name,method,crc,csize,usize,off:ds,raw:u8.subarray(ds,ds+csize)});p+=46+nl+xl+cl;
+      const method=dv.getUint16(p+10,true),crc32=dv.getUint32(p+16,true),csize=dv.getUint32(p+20,true),usize=dv.getUint32(p+24,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
+      if(csize===0xffffffff||lo===0xffffffff)throw new Error('4GBを超えるファイルには対応していません');
+      out.push({name:td.decode(cd.subarray(p+46,p+46+nl)),method,crc:crc32,csize,usize,lo,src});p+=46+nl+xl+cl;
     }
     return out;
   }
-  async function data(e){if(e.method===0)return e.raw;if(e.method===8)return pipe(e.raw,new DecompressionStream('deflate-raw'));throw new Error('未対応の圧縮形式です')}
+  async function locate(e){if(e.ds==null){const h=new DataView((await ab(e.src,e.lo,e.lo+30)).buffer);e.ds=e.lo+30+h.getUint16(26,true)+h.getUint16(28,true)}return e.ds}
+  async function rawBlob(e){const ds=await locate(e);return e.src.slice(ds,ds+e.csize)}
+  async function data(e){const r=new Uint8Array(await (await rawBlob(e)).arrayBuffer());if(e.method===0)return r;if(e.method===8)return pipe(r,new DecompressionStream('deflate-raw'));throw new Error('未対応の圧縮形式です')}
+  async function blob(e,type){const r=await rawBlob(e);if(e.method===0)return r.slice(0,r.size,type);
+    if(e.method===8)return new Blob([await new Response(r.stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()],{type});throw new Error('未対応の圧縮形式です')}
   async function write(list,type){
     const enc=new TextEncoder(),parts=[],cd=[];let off=0;
     for(const f of list){
       const nm=enc.encode(f.name);let method,crc32,csize,usize,raw;
-      if(f.data==null)({method,crc:crc32,csize,usize,raw}=f);
+      if(f.data==null){({method,crc:crc32,csize,usize}=f);raw=f.src?await rawBlob(f):f.raw}
       else{const u=typeof f.data==='string'?enc.encode(f.data):f.data;crc32=crc(u);usize=u.length;raw=u;method=0;
-        if(!/\.(png|jpe?g|gif)$/i.test(f.name)&&u.length>256){try{const z=await pipe(u,new CompressionStream('deflate-raw'));if(z.length<u.length){raw=z;method=8}}catch(e){}}
+        if(!/\.(png|jpe?g|gif|mp4|mov|m4v)$/i.test(f.name)&&u.length>256){try{const z=await pipe(u,new CompressionStream('deflate-raw'));if(z.length<u.length){raw=z;method=8}}catch(e){}}
         csize=raw.length}
       const h=new DataView(new ArrayBuffer(30));h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint16(8,method,true);h.setUint16(12,0x21,true);
       h.setUint32(14,crc32,true);h.setUint32(18,csize,true);h.setUint32(22,usize,true);h.setUint16(26,nm.length,true);parts.push(new Uint8Array(h.buffer),nm,raw);
       const c=new DataView(new ArrayBuffer(46));c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);c.setUint16(10,method,true);c.setUint16(14,0x21,true);
       c.setUint32(16,crc32,true);c.setUint32(20,csize,true);c.setUint32(24,usize,true);c.setUint16(28,nm.length,true);c.setUint32(42,off,true);cd.push(new Uint8Array(c.buffer),nm);
-      off+=30+nm.length+raw.length;
+      off+=30+nm.length+csize;
     }
     const cs=cd.reduce((a,b)=>a+b.length,0),e=new DataView(new ArrayBuffer(22));e.setUint32(0,0x06054b50,true);e.setUint16(8,list.length,true);e.setUint16(10,list.length,true);e.setUint32(12,cs,true);e.setUint32(16,off,true);
     return new Blob([...parts,...cd,new Uint8Array(e.buffer)],{type});
   }
-  return{crc,read,data,write};
+  return{crc,open,data,blob,write};
 })();
+/* 画像・動画をあとから読み込む（開く時間を短くするため） */
+async function mediaBlob(m){if(!m.blob&&m.part&&S.pptxZip){const e=S.pptxZip.get(m.part);if(e)m.blob=await PZ.blob(e,m.type)}return m.blob}
+let lazyRun=0;
+async function loadPendingImages(){
+  const run=++lazyRun,d=S.doc,zip=S.pptxZip;if(!zip)return;
+  const uses=new Map(),order=[];
+  const idx=[...new Set([...[...S.visible].sort((a,b)=>a-b),...d.pages.keys()])];
+  for(const i of idx){const pg=d.pages[i];if(!pg)continue;for(const it of [...(pg.under||[]),...pg.items]){for(const id of [it.imageId,it.posterId]){const im=id&&S.images[id];if(!im||!im.pending)continue;
+    if(!uses.has(id)){uses.set(id,new Set());order.push(id)}uses.get(id).add(i)}}}
+  let k=0;
+  const worker=async()=>{while(k<order.length){if(run!==lazyRun)return;const id=order[k++],im=S.images[id];if(!im||!im.pending)continue;
+    try{const e=zip.get(im.part),ext=im.part.split('.').pop().toLowerCase(),r=await proxyImage(await PZ.blob(e,'image/'+({jpg:'jpeg',svg:'svg+xml'}[ext]||ext)),im.name);
+      if(run!==lazyRun||S.images[id]!==im)return;Object.assign(im,r,{pending:false})}catch(err){im.pending=false;im.failed=true}
+    for(const i of uses.get(id))dirty(i)}};
+  await Promise.all([worker(),worker(),worker()]);
+}
 
 /* ---------- video ---------- */
 let vidTarget=null;
@@ -3123,7 +3148,7 @@ async function placeVideoInto(it,file){
   }catch(e){toast('動画を読み込めませんでした')}
 }
 $('#fVid').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f&&vidTarget)placeVideoInto(vidTarget,f)});
-function playVideo(it){const m=S.media[it.mediaId];if(!m)return;const u=URL.createObjectURL(m.blob);
+async function playVideo(it){const m=S.media[it.mediaId];if(!m)return;if(!m.blob)toast('動画を読み込んでいます…');const b=await mediaBlob(m);if(!b)return;const u=URL.createObjectURL(b);
   modal(`<h2>${esc(m.name||'動画')}</h2><video id="v-el" controls autoplay playsinline style="width:100%;max-height:70vh;display:block"></video><div class="ok" id="v-msg"></div><div class="foot"><button id="v-close">閉じる</button></div>`).classList.add('owide');
   const v=$('#v-el');v.src=u;v.onerror=()=>{$('#v-msg').textContent='このブラウザでは再生できない形式です（PowerPointでは再生できます）'};
   $('#v-close').onclick=()=>{v.pause();URL.revokeObjectURL(u);closeModal()}}
@@ -3197,7 +3222,7 @@ async function exportPPTX(){
     const ctx={id:()=>nid++,img:async id=>{if(rmap[id])return rmap[id];let m=media.get(id);
       if(!m){const b=await imageBytes(id);m={name:`image${++mi}.${b.ext}`,u8:b.u8};media.set(id,m)}
       const rid='rId'+(rels.length+1);rels.push(rel(rid,'image','../media/'+m.name));rmap[id]=rid;return rid},
-      video:async id=>{let m=media.get(id);if(!m){const v=S.media[id],e=vext(v);vexts.set(e,v.type||VMIME[e]||'video/mp4');m={name:`media${++mi}.${e}`,u8:new Uint8Array(await v.blob.arrayBuffer())};media.set(id,m)}
+      video:async id=>{let m=media.get(id);if(!m){const v=S.media[id],e=vext(v);vexts.set(e,v.type||VMIME[e]||'video/mp4');m={name:`media${++mi}.${e}`,u8:new Uint8Array(await (await mediaBlob(v)).arrayBuffer())};media.set(id,m)}
         const a='rId'+(rels.length+1),b='rId'+(rels.length+2);rels.push(rel(a,'http://schemas.microsoft.com/office/2007/relationships/media','../media/'+m.name),rel(b,'video','../media/'+m.name));return{embed:a,link:b}}};
     const its=[...pg.items],nb=nombreItem(i);if(nb)its.push(nb);
     const body=await itemsXml(its,ctx);
@@ -3272,8 +3297,7 @@ async function importPPTX(file){
   try{await importPPTXInner(file)}finally{if($('#imp-msg'))closeModal()}
 }
 async function importPPTXInner(file){
-  const u8=new Uint8Array(await file.arrayBuffer()),ents=PZ.read(u8),map=new Map(ents.map(e=>[e.name,e])),td=new TextDecoder(),cache=new Map(),relCache=new Map();
-  const blobOf=(e,type)=>e.method===0?file.slice(e.off,e.off+e.csize,type):PZ.data(e).then(d=>new Blob([d],{type}));
+  const ents=await PZ.open(file),map=new Map(ents.map(e=>[e.name,e])),td=new TextDecoder(),cache=new Map(),relCache=new Map();
   const xml=async n=>{if(cache.has(n))return cache.get(n);const e=map.get(n);const x=e?new DOMParser().parseFromString(td.decode(await PZ.data(e)),'application/xml'):null;cache.set(n,x);return x};
   const rels=async part=>{if(relCache.has(part))return relCache.get(part);const x=await xml(relsPath(part)),o={};if(x)for(const r of x.getElementsByTagName('Relationship'))o[r.getAttribute('Id')]={type:r.getAttribute('Type')||'',target:r.getAttribute('TargetMode')==='External'?null:partResolve(part,r.getAttribute('Target'))};relCache.set(part,o);return o};
   const relOf=(rs,suffix)=>Object.values(rs).find(r=>r.type.endsWith('/'+suffix)&&r.target);
@@ -3286,10 +3310,7 @@ async function importPPTXInner(file){
   d.bleed=0;d.margins={top:SM,bottom:SM,inner:SM,outer:SM};d.nombre.mode='none';d.pptx={name:file.name,key};d.pages=[];
   const images={},imgIds=new Map(),vmedia={},vIds=new Map(),underCache=new Map(),errors=[];
   const IMG=/\.(png|jpe?g|gif|bmp|webp|svg)$/i;
-  const loadMedia=async target=>{if(imgIds.has(target))return imgIds.get(target);let id=null;
-    try{const ext=target.split('.').pop().toLowerCase(),mime='image/'+({jpg:'jpeg',svg:'svg+xml'}[ext]||ext);
-      const im=await proxyImage(await blobOf(map.get(target),mime),target.split('/').pop());im.part=target;id=uid();images[id]=im}catch(e){}
-    imgIds.set(target,id);return id};
+  const loadMedia=async target=>{if(imgIds.has(target))return imgIds.get(target);const id=uid();images[id]={part:target,name:target.split('/').pop(),w:1,h:1,pending:true};imgIds.set(target,id);return id};
   // theme + colour helpers per master
   const ctxOf=async(lpart)=>{
     const lx=lpart&&await xml(lpart),lrel=lpart?await rels(lpart):{};
@@ -3337,7 +3358,7 @@ async function importPPTXInner(file){
         const nvPr=kid(nv,'nvPr',NP),vf=nvPr&&kid(nvPr,'videoFile'),pm=el.getElementsByTagNameNS(P14,'media')[0];
         const vr=(pm&&W.rels[pm.getAttributeNS(NR,'embed')])||(vf&&W.rels[vf.getAttributeNS(NR,'link')]);
         if(W.ids&&vr&&vr.target&&map.get(vr.target)){let mid=vIds.get(vr.target);
-          if(!mid){const e=vr.target.split('.').pop().toLowerCase(),nm=vr.target.split('/').pop(),type=VMIME[e]||'video/mp4';mid=uid();vmedia[mid]={blob:await blobOf(map.get(vr.target),type),name:nm,type,part:vr.target};vIds.set(vr.target,mid)}
+          if(!mid){const e=vr.target.split('.').pop().toLowerCase(),nm=vr.target.split('/').pop(),type=VMIME[e]||'video/mp4';mid=uid();vmedia[mid]={blob:null,size:map.get(vr.target).usize,name:nm,type,part:vr.target};vIds.set(vr.target,mid)}
           W.out.push(tag(videoItem({...box,mediaId:mid,posterId:imageId,fit:'stretch'}),{kind:'pic',o:{...box,imageId:mid}}));continue}
         W.out.push(tag(imageItem({...box,imageId,fit:'stretch'}),{kind:'pic',o:{...box,imageId}}));continue}
       const spPr=kid(el,'spPr',NP);let fl=color(C,kid(spPr,'solidFill'));const lnEl=kid(spPr,'ln'),st=lnEl&&!kid(lnEl,'noFill')?color(C,kid(lnEl,'solidFill')):null;
@@ -3402,11 +3423,12 @@ async function importPPTXInner(file){
       d.pages.push(pg);
     }catch(err){errors.push(err);d.pages.push({id:uid(),items:[],noNombre:true,part,srcIds:[],broken:true})}
     cache.delete(part);
-    if(si%4===3)await new Promise(r=>setTimeout(r,0));
+    if(si%8===7)await new Promise(r=>setTimeout(r,0));
   }
   if(!d.pages.length)throw new Error('スライドが見つかりません');
   if(errors.length)console.warn('pptx import',errors);
-  S.doc=d;S.images=images;S.media=vmedia;S.pptxSrc=u8;S.sel=null;S.page=0;fitZoom();rebuild();renderAll();resetHistory();
+  S.doc=d;S.images=images;S.media=vmedia;S.pptxSrc=file;S.pptxZip=map;S.sel=null;S.page=0;fitZoom();rebuild();renderAll();resetHistory();
+  setTimeout(loadPendingImages,0);
   kvSet('pptxsrc',{key,blob:file});
   if(errors.length)toast(`一部の要素を表示できませんでした（${errors.length}件）。保存時は元のまま残ります`);
 }
@@ -3451,7 +3473,7 @@ function setText(tb,text){
 }
 async function patchPPTX(){
   if(!S.pptxSrc)throw new Error('元のPowerPointファイルが見つかりません。もう一度開いてください');
-  const ents=PZ.read(S.pptxSrc),map=new Map(ents.map(e=>[e.name,e])),td=new TextDecoder(),out=new Map(),added=[];let mi=0;
+  const ents=await PZ.open(S.pptxSrc),map=new Map(ents.map(e=>[e.name,e])),td=new TextDecoder(),out=new Map(),added=[];let mi=0;
   const ser=x=>XH+new XMLSerializer().serializeToString(x).replace(/^<\?xml[^>]*>\s*/,'');
   const parse=async n=>new DOMParser().parseFromString(td.decode(await PZ.data(map.get(n))),'application/xml');
   const exts=new Map(),ctOver=[];let nmPath=null;
@@ -3473,7 +3495,7 @@ async function patchPPTX(){
     const byId=new Map();for(const c of x.getElementsByTagNameNS(NP,'cNvPr'))byId.set(c.getAttribute('id'),c.parentNode.parentNode);
     const relDoc=async()=>{if(!rx)rx=map.get(rp)?await parse(rp):new DOMParser().parseFromString(relsXml([]),'application/xml');return rx};
     const addRel=async(type,target)=>{const r=await relDoc(),root=r.documentElement,rid='rIdTb'+(++mi),el=r.createElementNS(root.namespaceURI,'Relationship');el.setAttribute('Id',rid);el.setAttribute('Type',type);el.setAttribute('Target',target);root.appendChild(el);return rid};
-    const addVid=async id=>{const v=S.media[id],e=vext(v),nm=`thinbook${Date.now().toString(36)}${++mi}.${e}`;added.push({name:'ppt/media/'+nm,data:new Uint8Array(await v.blob.arrayBuffer())});exts.set(e,v.type||VMIME[e]||'video/mp4');
+    const addVid=async id=>{const v=S.media[id],e=vext(v),nm=`thinbook${Date.now().toString(36)}${++mi}.${e}`;added.push({name:'ppt/media/'+nm,data:new Uint8Array(await (await mediaBlob(v)).arrayBuffer())});exts.set(e,v.type||VMIME[e]||'video/mp4');
       return{embed:await addRel('http://schemas.microsoft.com/office/2007/relationships/media','../media/'+nm),link:await addRel(RT+'video','../media/'+nm)}};
     const addImg=async id=>{const b=await imageBytes(id),nm=`thinbook${Date.now().toString(36)}${++mi}.${b.ext}`;added.push({name:'ppt/media/'+nm,data:b.u8});exts.set(b.ext,'image/'+b.ext);
       const r=await relDoc(),root=r.documentElement,rid='rIdTb'+mi,el=r.createElementNS(root.namespaceURI,'Relationship');
