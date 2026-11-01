@@ -2765,7 +2765,7 @@ const NUMU=/[+＋\-−]?[0-9０-９][0-9０-９,，.．]*\s*(?:%|％|倍|件|人
 const isNumLine=x=>{const v=String(x).trim(),m=v.match(NUMRE);return!!m&&m[0].trim()===v&&(v.length>=2||NUMU.test(v))};
 function slideContent(pg){const t=slideTexts(pg),o={...(pg.stash||{})};for(const [k,v] of Object.entries(t)){if(v==null)continue;if(k==='image'){o.image=v;continue}const s=String(v).trim();if(s&&s!==PH[k])o[k]=s;else delete o[k]}return o}
 /* 内容をレイアウトの枠に合わせて移し替える。入らない内容は stash に残し、別のレイアウトに戻したときに復元する */
-function adaptTexts(key,t,from,idx){
+function adaptTexts(key,t,from,idx,noSplit){
   const B=baseOf(key),F=from&&LAYOUTS[from]?baseOf(from):null,has=s=>SLOTS[B].includes(s),o={...t},join=(...a)=>a.filter(x=>x&&String(x).trim()).join('\n');
   if(F==='number'&&o.num&&!has('num')&&!String(o.body||'').includes(o.num)&&!String(o.title||'').includes(o.num))o.body=join(o.num,o.body);
   if(F&&F!=='section'&&F!=='number'&&B!=='section')delete o.num;
@@ -2773,59 +2773,122 @@ function adaptTexts(key,t,from,idx){
   if(o.body2&&!has('body2')&&has('body')){o.body=join(o.body,o.body2);delete o.body2}
   if(B==='title'&&!o.sub&&o.body){o.sub=o.body;delete o.body}
   if(o.sub&&!has('sub')&&has('body')){o.body=join(o.sub,o.body);delete o.sub}
-  if(B==='two'&&!o.body2&&o.body){const ls=o.body.split('\n');if(ls.length>1){const h=Math.ceil(ls.length/2);o.body=ls.slice(0,h).join('\n');o.body2=ls.slice(h).join('\n')}}
+  if(B==='two'&&!noSplit&&!o.body2&&o.body){const ls=o.body.split('\n');if(ls.length>1){const h=Math.ceil(ls.length/2);o.body=ls.slice(0,h).join('\n');o.body2=ls.slice(h).join('\n')}}
   if(B==='number'&&!o.num){const ls=(o.body||'').split('\n'),k=ls.findIndex(isNumLine);
     if(k>=0){o.num=ls[k].trim();ls.splice(k,1);o.body=ls.join('\n')}else{const m=(o.body||'').match(NUMU)||(o.title||'').match(NUMU);if(m)o.num=m[0].trim()}}
   if(B==='section'&&!o.num&&idx!=null){let n=1;for(let i=0;i<idx;i++)if(baseOf(S.doc.pages[i].layout)==='section')n++;o.num=String(n).padStart(2,'0')}
   const stash={};for(const k of Object.keys(o))if(k!=='image'&&!has(k)){stash[k]=o[k];delete o[k]}
   if(Object.keys(stash).length)Object.defineProperty(o,'stash',{value:stash,enumerable:false});
   return o}
-function fitSlide(pg){for(const it of pg.items){if(it.type!=='text'||!it.slot)continue;const s0=it.size;let g=0;
+function fitSlide(pg,ids){for(const it of pg.items){if(it.type!=='text'||!(it.slot||ids&&ids.has(it.id)))continue;const s0=it.size;let g=0;
   while(g++<12&&it.size>s0*0.55){const L=layoutText(it,it.text,true);lcache.delete(it.id);if(!L.overflow)break;it.size=Math.round(it.size*0.9*10)/10}}return pg}
-function setLayout(pi,key){const d=S.doc,pg=d.pages[pi],at=adaptTexts(key,slideContent(pg),pg.layout,pi);const n=fitSlide(makeSlide(key,at));if(at.stash)n.stash=at.stash;n.id=pg.id;n.items.push(...pg.items.filter(x=>!x.lay));
-  d.pages[pi]=n;S.sel=null;dirty(pi);commit();renderProps()}
+/* 既存の文字・画像・図形を壊さずにレイアウトの枠へ再配置する */
+const jclone=o=>JSON.parse(JSON.stringify(o));
+function itemBox(it){if(it.type==='text'){const L=layoutText(it,it.text,true);if(L.bbox)return{x0:it.x+L.bbox.x0,y0:it.y+L.bbox.y0,x1:it.x+L.bbox.x1,y1:it.y+L.bbox.y1}}return{x0:it.x,y0:it.y,x1:it.x+it.w,y1:it.y+it.h}}
+function slideParts(pg){
+  const d=S.doc,A=d.trimW*d.trimH,m=linkMap(),free=[],bg=[],keep=[];
+  for(const it of pg.items){if(it.lay)continue;
+    if(it.type==='rect'&&it.w*it.h>=A*0.6){bg.push(it);continue}
+    if(it.type==='text'&&!String(it.text||'').trim()){keep.push(it);continue}
+    free.push(it)}
+  const bx=free.map(itemBox),par=free.map((_,i)=>i),f=i=>par[i]===i?i:(par[i]=f(par[i]));
+  for(let i=0;i<free.length;i++)for(let j=i+1;j<free.length;j++){const p=bx[i],q=bx[j];if(Math.min(p.x1,q.x1)-Math.max(p.x0,q.x0)>1&&Math.min(p.y1,q.y1)-Math.max(p.y0,q.y0)>1)par[f(i)]=f(j)}
+  const gs=new Map();free.forEach((_,i)=>{const r=f(i);if(!gs.has(r))gs.set(r,[]);gs.get(r).push(i)});
+  const texts=[],figs=[];
+  for(const g of gs.values()){const items=g.map(i=>free[i]),b={x0:Math.min(...g.map(i=>bx[i].x0)),y0:Math.min(...g.map(i=>bx[i].y0)),x1:Math.max(...g.map(i=>bx[i].x1)),y1:Math.max(...g.map(i=>bx[i].y1))};
+    if(items.some(it=>it.next||m.prev.has(it.id)||(it.src&&(it.src.grp||it.src.hasText)))){keep.push(...items);continue}
+    if(items.length===1&&items[0].type==='text')texts.push({it:items[0],b});else figs.push({items,b})}
+  const ord=(p,q)=>(p.b.y0-q.b.y0)||(p.b.x0-q.b.x0);texts.sort(ord);figs.sort(ord);
+  return{texts:texts.map(x=>x.it),figs,bg,keep}}
+function slideModel(pg){
+  const t=slideContent(pg),srcs={},P=slideParts(pg);
+  for(const it of pg.items)if(it.lay&&it.slot&&!(it.slot in srcs))srcs[it.slot]=it;
+  if(!srcs.body&&srcs.c1)srcs.body=srcs.c1;
+  const texts=[...P.texts];
+  if(!t.title&&texts.length){let h=texts[0];for(const x of texts)if(x.size>h.size)h=x;
+    if(String(h.text).trim().length<=80){t.title=String(h.text).trim();srcs.title=h;texts.splice(texts.indexOf(h),1)}}
+  if(!t.body&&!t.sub&&!t.body2&&texts.length){const x=texts.shift();t.body=String(x.text).trim();srcs.body=x}
+  return{t,srcs,extras:texts,figs:P.figs,bg:P.bg,keep:P.keep}}
+function slideTheme(pg){const d=S.doc;if(!d.pptx)return theme();
+  const hx=c=>'#'+cHex(c),A=d.trimW*d.trimH,ts=pg.items.filter(it=>it.type==='text'&&String(it.text||'').trim()).sort((p,q)=>q.size-p.size);
+  const bg=pg.bg?hx(pg.bg):'#FFFFFF',h=ts[0],bo=ts[1]||ts[0];
+  const fills=pg.items.filter(it=>it.type==='rect'&&it.fill&&it.w*it.h<A*0.6).map(it=>hx(it.fill)).filter(c=>c!==bg);
+  return{bg,ink:h?hx(h.color):'#000000',sub:bo?hx(bo.color):'#000000',accent:fills[0]||(h?hx(h.color):'#000000'),on:bg,head:h?h.font:'Noto Sans JP',body:bo?bo.font:'Noto Sans JP'}}
+function layoutOk(k){return!S.doc.pptx||LAYOUTS[k].bg==='bg'}
+function placeFigs(figs,R){
+  const n=figs.length,cols=n===1?1:R.w>=R.h*1.3?Math.min(n,3):n<=2?1:2,rows=Math.ceil(n/cols),G=6,cw=(R.w-(cols-1)*G)/cols,ch=(R.h-(rows-1)*G)/rows,out=[];
+  figs.forEach((fg,i)=>{const b=fg.b,bw=Math.max(1,b.x1-b.x0),bh=Math.max(1,b.y1-b.y0),s=Math.min(cw/bw,ch/bh,fg.items.length>1?1.5:2.5),cx=R.x+(i%cols)*(cw+G)+(cw-bw*s)/2,cy=R.y+Math.floor(i/cols)*(ch+G)+(ch-bh*s)/2;
+    for(const it of fg.items){it.x=r1(cx+(it.x-b.x0)*s);it.y=r1(cy+(it.y-b.y0)*s);it.w=r1(it.w*s);it.h=r1(it.h*s);
+      if(it.type==='text')it.size=Math.round(it.size*s*10)/10;if(it.ox)it.ox*=s;if(it.oy)it.oy*=s;out.push(it)}});
+  return out}
+function relayout(pg0,key,pi,T){
+  const d=S.doc,pg=jclone(pg0),M=slideModel(pg),at=adaptTexts(key,M.t,pg.layout,pi,M.figs.length>0),n=makeSlide(key,at,T),W=d.trimW,H=d.trimH;
+  if(Math.abs(W-SW)>0.5||Math.abs(H-SH)>0.5){const kx=W/SW,ky=H/SH;for(const it of n.items){it.x=r1(it.x*kx);it.w=r1(it.w*kx);it.y=r1(it.y*ky);it.h=r1(it.h*ky);if(it.type==='text')it.size=Math.round(it.size*Math.min(kx,ky)*10)/10}}
+  const used=new Set();
+  for(const it of n.items){const s=it.slot&&M.srcs[it.slot==='c1'?'body':it.slot];if(s&&!used.has(s.id)&&s.type===it.type){used.add(s.id);it.id=s.id;if(s.src)it.src=s.src}}
+  const find=k=>n.items.find(x=>x.slot===k),drop=x=>n.items.splice(n.items.indexOf(x),1),box=x=>({x:x.x,y:x.y,w:x.w,h:x.h});
+  const im=find('image'),b2=find('body2'),bd=find('body'),figs=[...M.figs];let R=null,figItems=[],at0=-1;
+  if(figs.length){
+    if(im&&!im.imageId){const o=figs[0].items[0];
+      if(figs.length===1&&figs[0].items.length===1&&o.type==='image'&&!d.pptx){Object.assign(im,{id:o.id,imageId:o.imageId,zoom:o.zoom,ox:0,oy:0});figs.length=0}
+      else{R=box(im);at0=n.items.indexOf(im);drop(im)}}
+    else if(b2&&!at.body2){R=box(b2);drop(b2);const ln=n.items.find(x=>x.lay&&x.type==='rect'&&x.w<2&&x.h>40);if(ln)drop(ln)}
+    else if(bd&&at.body){const tw=(bd.w-10)*0.55;R={x:bd.x+tw+10,y:bd.y,w:bd.w-tw-10,h:bd.h};bd.w=r1(tw)}
+    else if(bd){R=box(bd);drop(bd)}
+    else R={x:W*0.58,y:SM,w:W*0.42-SM,h:H-2*SM};
+    if(figs.length)figItems=placeFigs(figs,R);if(at0>=0){n.items.splice(at0,0,...figItems);figItems=[]}}
+  const ex=M.extras;
+  if(ex.length){const host=n.items.includes(bd)?bd:null,F=host?box(host):{x:SM,y:H*0.62,w:W-2*SM,h:H*0.38-SM},list=host&&at.body?[host,...ex]:ex,
+      wt=x=>String(x.text).split('\n').length+String(x.text).length/40,tot=list.reduce((a,x)=>a+wt(x),0),G=4;let y=F.y;
+    if(host&&!at.body)drop(host);
+    for(const x of list){const h=(F.h-G*(list.length-1))*wt(x)/tot;Object.assign(x,{x:r1(F.x),y:r1(y),w:r1(F.w),h:r1(h)});y+=h+G}}
+  const out=Object.assign({},pg,{items:[...M.bg,...n.items,...figItems,...ex,...M.keep],layout:key});
+  if(d.pptx){delete out.bgRole}else{out.bgRole=n.bgRole;out.bg=n.bg}
+  if(at.stash)out.stash=at.stash;else delete out.stash;
+  return fitSlide(out,new Set(ex.map(x=>x.id)))}
+function setLayout(pi,key){const d=S.doc,pg=d.pages[pi];d.pages[pi]=relayout(pg,key,pi,slideTheme(pg));S.sel=null;S.lmap=null;dirty(pi);commit();renderProps()}
 function addSlide(key){const d=S.doc;if(d.pptx){toast('PowerPointファイルではスライドを追加できません');return}const at=Math.min(S.page+1,d.pages.length);d.pages.splice(at,0,makeSlide(key));rebuild();commit();setPage(at);renderProps();
   const pe=S.pageEls[at];if(pe)pe.el.scrollIntoView({block:'center'})}
 function setTheme(k){const d=S.doc;d.theme=k;d.pages.forEach(p=>themePage(p));dirtyAll();updateInfo();commit();renderDoc();renderProps()}
 function themeGrid(cur){return `<div class="themes">${Object.entries(THEMES).map(([k,t])=>`<button type="button" class="th${k===cur?' on':''}" data-th="${k}"><span class="sw" style="background:${t.bg}"><i style="background:${t.accent}"></i><b style="color:${t.ink};font-family:'${t.head}'">Aa</b></span>${esc(t.name)}</button>`).join('')}</div>`}
 const layThumbCache=new Map();
-function drawLayThumbs(root){
-  const T=theme(),dpr=window.devicePixelRatio||1;
+function drawLayThumbs(root,T=theme()){
+  const dpr=window.devicePixelRatio||1,px=!!S.doc.pptx;
   for(const b of root.querySelectorAll('.lay:not(.sug)')){const c=b.querySelector('canvas'),k=b.dataset.lay,ck=(S.doc.theme||'')+k;
-    let pg=layThumbCache.get(ck);if(!pg){pg=makeSlide(k,{},T);layThumbCache.set(ck,pg)}
+    let pg=px?null:layThumbCache.get(ck);if(!pg){pg=makeSlide(k,{},T);if(!px)layThumbCache.set(ck,pg)}
     c.width=Math.round(120*dpr);c.height=Math.round(120*SH/SW*dpr);const ctx=c.getContext('2d'),s=c.width/SW;ctx.setTransform(s,0,0,s,0,0);
     ctx.fillStyle=cmykCss(pg.bg);ctx.fillRect(0,0,SW,SH);
     for(const it of pg.items){if(it.type==='image'){ctx.fillStyle=T.sub;ctx.fillRect(it.x,it.y,it.w,it.h)}else drawItem(ctx,it,null,false)}}
 }
-function layBtns(cur){return Object.entries(LAYOUTS).map(([k,l])=>`<button type="button" class="lay${k===cur?' on':''}" data-lay="${k}"><canvas></canvas>${esc(l.name)}</button>`).join('')}
+function layBtns(cur){return Object.entries(LAYOUTS).filter(([k])=>layoutOk(k)).map(([k,l])=>`<button type="button" class="lay${k===cur?' on':''}" data-lay="${k}"><canvas></canvas>${esc(l.name)}</button>`).join('')}
 function proposeLayouts(pi){
-  const pg=S.doc.pages[pi],t=slideContent(pg),cur=pg.layout||'content',cb=baseOf(cur);
-  const all=[t.body,t.body2,t.sub].filter(Boolean).join('\n'),ls=cardLines(all),n=ls.length,maxLen=Math.max(0,...ls.map(x=>x.length)),tl=(t.title||'').length;
-  const img=!!t.image||cb==='image',num=cb==='number'||ls.some(isNumLine)||NUMU.test(all)||NUMU.test(t.title||'');
+  const pg=S.doc.pages[pi],M=slideModel(jclone(pg)),t=M.t,cur=pg.layout||'content',cb=baseOf(cur),nf=M.figs.length;
+  const all=[t.body,t.body2,t.sub,...M.extras.map(x=>x.text)].filter(Boolean).join('\n'),ls=cardLines(all),n=ls.length,maxLen=Math.max(0,...ls.map(x=>x.length)),tl=(t.title||'').length;
+  const img=!!t.image||cb==='image'||nf>0,num=cb==='number'||ls.some(isNumLine)||NUMU.test(all)||NUMU.test(t.title||'');
   const sc={};const add=(k,v)=>{sc[k]=Math.max(sc[k]||0,v)};
   if(pi===0||cb==='title'){add('title',10);add('title_c',9);add('title_b',8);if(img)add('image_full',9)}
   if(cb==='section'||(!n&&pi>0)){add('section',9);add('section_l',9);add('statement',8);add('title_c',5)}
-  if(img){add('image',10);add('image_r',10);add('image_full',n<=2?9:6)}
+  if(img){add('image',10);add('image_r',10);if(nf<=1)add('image_full',n<=2?9:6)}
+  if(nf){add('content',8);if(!t.body2)add('two',8)}
   if(num){add('number',9);add('number_l',9)}
   if(n>=2&&n<=4&&maxLen<=40)add('cards',n>=3?10:8);
   if(t.body2||cb==='two')add('two',10);else if(n>=4)add('two',8);
   if(n){add('content',7);add('content_side',tl<=12?7:5);if(n<=2&&all.length<=60)add('statement',8)}
   if(pi>0&&cb!=='title'&&!sc.content)add('content',4);
-  add(LAYOUTS[cur]?cur:'content',9.5);
-  const order=Object.keys(LAYOUTS);
-  return Object.entries(sc).filter(([k])=>!(img&&!SLOTS[baseOf(k)].includes('image')&&sc[k]<9)).sort((a,b)=>b[1]-a[1]||order.indexOf(a[0])-order.indexOf(b[0])).slice(0,6).map(([k])=>k);
+  if(LAYOUTS[pg.layout])add(pg.layout,9.5);
+  const order=Object.keys(LAYOUTS),figOk=k=>['image','content','two'].includes(baseOf(k))&&k!=='statement';
+  return Object.entries(sc).filter(([k])=>layoutOk(k)&&(nf?figOk(k):!(img&&!SLOTS[baseOf(k)].includes('image')&&sc[k]<9))).sort((a,b)=>b[1]-a[1]||order.indexOf(a[0])-order.indexOf(b[0])).slice(0,6).map(([k])=>k);
 }
 function drawSlideThumb(c,pg,T,wpx){
-  const dpr=window.devicePixelRatio||1;c.width=Math.round(wpx*dpr);c.height=Math.round(wpx*SH/SW*dpr);const ctx=c.getContext('2d'),s=c.width/SW;ctx.setTransform(s,0,0,s,0,0);
-  ctx.fillStyle=cmykCss(pg.bg);ctx.fillRect(0,0,SW,SH);
+  const W=S.doc.trimW,H=S.doc.trimH,dpr=window.devicePixelRatio||1;c.width=Math.round(wpx*dpr);c.height=Math.round(wpx*H/W*dpr);c.style.aspectRatio=W+'/'+H;const ctx=c.getContext('2d'),s=c.width/W;ctx.setTransform(s,0,0,s,0,0);
+  ctx.fillStyle=pg.bg?cmykCss(pg.bg):'#ffffff';ctx.fillRect(0,0,W,H);
   for(const it of pg.items){if(it.type==='image'&&!(it.imageId&&S.images[it.imageId]&&S.images[it.imageId].img)){ctx.fillStyle=T.sub;ctx.fillRect(it.x,it.y,it.w,it.h)}else drawItem(ctx,it,null,false)}
   for(const it of pg.items)lcache.delete(it.id);
 }
 function sugBtns(pi){const pg=S.doc.pages[pi];return proposeLayouts(pi).map(k=>`<button type="button" class="lay sug${k===pg.layout?' on':''}" data-lay="${k}"><canvas></canvas>${esc(LAYOUTS[k].name)}</button>`).join('')}
 function drawSugThumbs(root,pi){
-  const pg=S.doc.pages[pi],T=theme(),t=slideContent(pg);
-  for(const b of root.querySelectorAll('.sug')){const k=b.dataset.lay,p=k===pg.layout?pg:fitSlide(makeSlide(k,adaptTexts(k,t,pg.layout,pi),T));
-    if(p!==pg)p.items.push(...pg.items.filter(x=>!x.lay));drawSlideThumb(b.querySelector('canvas'),p,T,130)}
+  const pg=S.doc.pages[pi],T=slideTheme(pg);
+  for(const b of root.querySelectorAll('.sug')){const k=b.dataset.lay,p=k===pg.layout?pg:relayout(pg,k,pi,T);drawSlideThumb(b.querySelector('canvas'),p,T,130)}
 }
 function renderSlideProps(el){
   const d=S.doc,pg=d.pages[S.page];
@@ -2833,14 +2896,13 @@ function renderSlideProps(el){
   const notes=`<div class="sec"><h3>発表者ノート</h3><textarea id="pNotes" spellcheck="false">${esc(pg.notes||'')}</textarea>${tts?'<div class="btns"><button id="pTts">読み上げ</button></div>':''}</div>`;
   const bindNotes=()=>{$('#pNotes').oninput=e=>{pg.notes=e.target.value;clearTimeout(commitT);commitT=setTimeout(commit,600)};
     if(tts)$('#pTts').onclick=()=>speak(pg.notes||'',(d.pres&&d.pres.lang)||'ja')};
-  if(d.pptx){el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1}</h3></div>`+notes;bindNotes();return}
   el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1} のレイアウト案</h3><div class="lays sugs" id="laySug">${sugBtns(S.page)}</div></div>
-    <div class="sec"><h3>すべてのレイアウト</h3><div class="lays" id="layCur">${layBtns(pg.layout)}</div></div>
-    <div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`+notes;
-  drawLayThumbs(el);drawSugThumbs(el,S.page);bindNotes();
+    <div class="sec"><h3>すべてのレイアウト</h3><div class="lays" id="layCur">${layBtns(pg.layout)}</div></div>`+
+    (d.pptx?'':`<div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`)+notes;
+  drawLayThumbs(el,slideTheme(pg));drawSugThumbs(el,S.page);bindNotes();
   $('#laySug').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
   $('#layCur').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
-  $('#layAdd').onclick=e=>{const b=e.target.closest('.lay');if(b)addSlide(b.dataset.lay)};
+  if(!d.pptx)$('#layAdd').onclick=e=>{const b=e.target.closest('.lay');if(b)addSlide(b.dataset.lay)};
 }
 function renderSlideDoc(){
   const d=S.doc;
