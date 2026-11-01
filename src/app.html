@@ -209,6 +209,7 @@ textarea.outline{width:100%;min-height:260px;resize:vertical;line-height:1.6;fon
 .dw-grid tr.k-blank td input{color:var(--sub)}
 .dw-side{border-left:1px solid var(--line);background:var(--stage);overflow:auto;min-height:0;display:flex;flex-direction:column}
 .dw-side img{width:100%;height:auto;display:block}
+#dw-imgs{display:flex;flex-direction:column;gap:4px}
 .dw-side .dw-ib{display:flex;justify-content:flex-end;gap:4px;padding:6px;background:var(--panel);border-bottom:1px solid var(--line)}
 .dw-key{display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line)}
 .dw-key input{flex:1}
@@ -2070,7 +2071,7 @@ kvGet('neta').then(v=>{if(Array.isArray(v))N8.list=v;if(N8.open){netaRenderList(
 const KIND_LABEL=Object.fromEntries(PLAN_KINDS);
 const KIND_ALIAS={'本文':'body','漫画':'body','マンガ':'body','小説':'body','扉':'title','中扉':'title','目次':'toc','もくじ':'toc','イラスト':'illust','挿絵':'illust','口絵':'illust','奥付':'colophon','白':'blank','空白':'blank','その他':'other'};
 function kindOf(s){s=String(s||'').trim();if(!s)return'body';if(KIND_LABEL[s])return s;if(KIND_ALIAS[s])return KIND_ALIAS[s];for(const[k,v]of Object.entries(KIND_ALIAS))if(s.includes(k))return v;return'other'}
-const DW={rows:null,doc:null,dirty:false,sel:new Set(),anchor:null,cur:null,blob:null,url:'',busy:false,bookTitle:'',drag:null,confirm:false};
+const DW={rows:null,doc:null,dirty:false,sel:new Set(),anchor:null,cur:null,blobs:[],urls:[],busy:false,bookTitle:'',drag:null,confirm:false};
 let smpCap=null;try{if(window.claude&&window.claude.use)smpCap=window.claude.use('sample')}catch(e){}
 const blankRow=()=>({pid:null,kind:'body',title:'',note:''});
 function resetDraft(){DW.rows=S.doc.pages.map(p=>({pid:p.id,kind:(p.plan&&p.plan.kind)||'body',title:(p.plan&&p.plan.title)||'',note:(p.plan&&p.plan.note)||''}));DW.doc=S.doc;DW.dirty=false;DW.sel.clear();DW.cur=null;DW.confirm=false}
@@ -2078,17 +2079,17 @@ function resetDraft(){DW.rows=S.doc.pages.map(p=>({pid:p.id,kind:(p.plan&&p.plan
 function openDaiwari(){
   if(S.doc.kind==='cover'){toast('表紙の書類には台割はありません');return}
   if(!DW.rows||DW.doc!==S.doc||!DW.dirty)resetDraft();
-  const dlg=modal(`<div class="dw-bar"><h2>台割</h2><button id="dw-load">ラフを読み込む</button><span class="sp"></span>
+  const dlg=modal(`<div class="dw-bar"><h2>台割</h2><button id="dw-load">ラフを読み込む</button><button id="dw-sheet">記入用紙</button><span class="sp"></span>
       <button id="dw-ins">行を挿入</button><button id="dw-del">行を削除</button><button id="dw-up" aria-label="上へ移動">↑</button><button id="dw-dn" aria-label="下へ移動">↓</button>
       <label class="grp">ページ数<input type="number" id="dw-n" min="1" max="1000" step="1"></label><span id="dw-cnt" class="dw-cnt"></span></div>
     <div class="dw-key" id="dw-key" hidden><span>画像の解析にはAnthropic APIキーが必要です</span><input type="password" id="dw-keyv" placeholder="sk-ant-..." autocomplete="off"><button id="dw-keyok">保存して解析</button></div>
     <div class="dw-msg" id="dw-msg" hidden></div>
     <div class="dw-body" id="dw-body"><div class="dw-grid"><table><colgroup><col style="width:52px"><col style="width:108px"><col><col></colgroup>
       <thead><tr><th>ページ</th><th>種類</th><th>タイトル</th><th>メモ</th></tr></thead><tbody id="dw-tb"></tbody></table></div>
-      <div class="dw-side" id="dw-side" hidden><div class="dw-ib"><button id="dw-re">再解析</button><button id="dw-imgx">画像を閉じる</button></div><img id="dw-img" alt="台割ラフ"></div></div>
+      <div class="dw-side" id="dw-side" hidden><div class="dw-ib"><button id="dw-re">再解析</button><button id="dw-imgx">画像を閉じる</button></div><div id="dw-imgs"></div></div></div>
     <datalist id="dw-kinds">${PLAN_KINDS.map(([,l])=>`<option value="${l}">`).join('')}</datalist>
     <div class="dw-foot"><button id="dw-reset">リセット</button><span class="sp"></span><button id="dw-close">閉じる</button><button class="primary" id="dw-apply">冊子に反映</button></div>
-    <input type="file" id="dw-file" accept="image/*" hidden>`);
+    <input type="file" id="dw-file" accept="image/*" multiple hidden>`);
   dlg.classList.add('dwdlg');
   dlg.addEventListener('keydown',e=>e.stopPropagation());
   const tb=$('#dw-tb');
@@ -2096,11 +2097,12 @@ function openDaiwari(){
   $('#dw-reset').onclick=()=>{resetDraft();setMsg('');renderDW()};
   $('#dw-apply').onclick=applyDaiwari;
   $('#dw-load').onclick=()=>$('#dw-file').click();
-  $('#dw-file').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
-    try{DW.blob=await shrinkImage(f)}catch(err){setMsg('画像を読み込めませんでした',true);return}
-    if(DW.url)URL.revokeObjectURL(DW.url);DW.url=URL.createObjectURL(DW.blob);showSide();analyzeRough()};
+  $('#dw-file').onchange=async e=>{const fs=[...e.target.files].slice(0,8);e.target.value='';if(!fs.length)return;
+    let bs;try{bs=await Promise.all(fs.map(shrinkImage))}catch(err){setMsg('画像を読み込めませんでした',true);return}
+    clearImgs();DW.blobs=bs;DW.urls=bs.map(b=>URL.createObjectURL(b));showSide();analyzeRough()};
+  $('#dw-sheet').onclick=printSheet;
   $('#dw-re').onclick=analyzeRough;
-  $('#dw-imgx').onclick=()=>{DW.blob=null;if(DW.url)URL.revokeObjectURL(DW.url);DW.url='';showSide()};
+  $('#dw-imgx').onclick=()=>{clearImgs();showSide()};
   $('#dw-keyok').onclick=()=>{const k=$('#dw-keyv').value.trim();if(!k)return;try{localStorage.setItem('thinbook.apikey',k)}catch(e){}DW.key=k;$('#dw-key').hidden=true;analyzeRough()};
   $('#dw-ins').onclick=()=>{const s=selRows();const at=s.length?s[0]:DW.rows.length;DW.rows.splice(at,0,blankRow());touch();DW.sel=new Set([at]);renderDW([at,0])};
   $('#dw-del').onclick=()=>{const s=selRows();if(!s.length)return;for(const i of s.reverse())DW.rows.splice(i,1);if(!DW.rows.length)DW.rows.push(blankRow());touch();DW.sel.clear();DW.cur=null;renderDW()};
@@ -2161,12 +2163,13 @@ function onPaste(e){
   touch();renderDW([r0,c0]);
 }
 function setMsg(t,err){const m=$('#dw-msg');if(!m)return;m.textContent=t;m.hidden=!t;m.classList.toggle('err',!!err)}
-function showSide(){const sd=$('#dw-side');if(!sd)return;sd.hidden=!DW.url;$('#dw-body').classList.toggle('img',!!DW.url);if(DW.url)$('#dw-img').src=DW.url}
+function clearImgs(){(DW.urls||[]).forEach(u=>URL.revokeObjectURL(u));DW.urls=[];DW.blobs=[]}
+function showSide(){const sd=$('#dw-side');if(!sd)return;const on=!!(DW.urls&&DW.urls.length);sd.hidden=!on;$('#dw-body').classList.toggle('img',on);$('#dw-imgs').innerHTML=on?DW.urls.map((u,k)=>`<img src="${u}" alt="台割ラフ ${k+1}">`).join(''):''}
 
 async function shrinkImage(f){const bmp=await createImageBitmap(f);const k=Math.min(1,1568/Math.max(bmp.width,bmp.height));const c=document.createElement('canvas');
   c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);const x=c.getContext('2d');x.fillStyle='#ffffff';x.fillRect(0,0,c.width,c.height);x.drawImage(bmp,0,0,c.width,c.height);
   return await new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error('encode')),'image/jpeg',0.88))}
-const DW_PROMPT=`画像は冊子（同人誌など）の台割ラフで、紙に手書きされたものです。各ページの内容を読み取り、次の形式のJSONだけを返してください。
+const DW_PROMPT=`画像は冊子（同人誌など）の台割ラフで、紙に手書きされたものです。画像が複数ある場合は続きのページとしてまとめて1つのJSONにしてください。各ページの内容を読み取り、次の形式のJSONだけを返してください。
 {"bookTitle": string|null, "total": number|null, "pages": [{"from": number, "to": number, "kind": "body"|"title"|"toc"|"illust"|"colophon"|"blank"|"other", "title": string, "note": string}]}
 例: {"bookTitle":"夏の本","total":24,"pages":[{"from":1,"to":1,"kind":"title","title":"夏の本","note":""},{"from":2,"to":2,"kind":"toc","title":"","note":""},{"from":3,"to":12,"kind":"body","title":"第一話","note":""}]}
 - from/to は本文のページ番号（1始まり、範囲の両端を含む）。表紙（表1〜表4）は含めない。
@@ -2175,24 +2178,29 @@ const DW_PROMPT=`画像は冊子（同人誌など）の台割ラフで、紙に
 - note はそれ以外の書き込み（カラー、ゲスト名、見開き など）。なければ空文字。
 - total は総ページ数。書かれていなければ最後のページ番号。
 - ページ番号がない場合は、枠の並び順（右綴じなら右から左、上から下）で数える。
-- 読めない文字は推測せず、読めた部分だけを入れる。`;
+- 読めない文字は推測せず、読めた部分だけを入れる。
+専用記入用紙（上部に「Thinbook 台割」と印字、四隅に黒い四角、ページごとの枠）の場合:
+- 各枠の左上の太字の数字が印字済みのページ番号。これをそのまま from/to に使う。
+- 種類は枠内のチェックボックス（本文・扉・目次・イラスト・奥付・白）のうち、レ点・×・塗りつぶし・丸囲みのあるもの。何も印がなく、タイトルもメモも空なら、その枠は出力しない。
+- 「タイトル」欄の手書きを title、「メモ」欄の手書きを note にする。「〃」「同上」や前の枠から続く矢印・線は、前のページと同じ種類・タイトルを意味する。
+- 用紙上部の「書名」欄を bookTitle、「総ページ数」欄を total にする。`;
 function apiKey(){if(DW.key)return DW.key;try{return localStorage.getItem('thinbook.apikey')||''}catch(e){return''}}
-async function callApi(key,blob){
-  const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=()=>rej(r.error);r.readAsDataURL(blob)});
+async function callApi(key,blobs){
+  const b64s=await Promise.all(blobs.map(blob=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=()=>rej(r.error);r.readAsDataURL(blob)})));
   const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-sonnet-5-5',max_tokens:8000,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},{type:'text',text:DW_PROMPT}]}]})});
+    body:JSON.stringify({model:'claude-sonnet-5-5',max_tokens:8000,messages:[{role:'user',content:[...b64s.map(data=>({type:'image',source:{type:'base64',media_type:'image/jpeg',data}})),{type:'text',text:DW_PROMPT}]}]})});
   const j=await r.json().catch(()=>({}));
   if(!r.ok){if(r.status===401){try{localStorage.removeItem('thinbook.apikey')}catch(e){}DW.key=''}throw new Error((j.error&&j.error.message)||'HTTP '+r.status)}
   const t=(j.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');const m=t.match(/\{[\s\S]*\}/);if(!m)throw new Error('結果を読み取れませんでした');return JSON.parse(m[0]);
 }
 async function analyzeRough(){
-  if(!DW.blob||DW.busy)return;
+  if(!(DW.blobs&&DW.blobs.length)||DW.busy)return;
   const btns=['#dw-load','#dw-re','#dw-apply'];const busy=v=>{DW.busy=v;btns.forEach(s=>{const b=$(s);if(b)b.disabled=v})};
   busy(true);setMsg('解析中…');
   try{
     const smp=smpCap&&await smpCap;const lim=smp?await smp.limits().catch(()=>null):null;let out;
-    if(lim&&lim.images)out=await smp.json(DW_PROMPT,{images:[DW.blob],modelTier:'default'});
-    else{const k=apiKey();if(!k){setMsg('');$('#dw-key').hidden=false;$('#dw-keyv').focus();return}out=await callApi(k,DW.blob)}
+    if(lim&&lim.images){const mx=lim.images.maxCount||DW.blobs.length;out=await smp.json(DW_PROMPT,{images:DW.blobs.slice(0,mx),modelTier:'default'})}
+    else{const k=apiKey();if(!k){setMsg('');$('#dw-key').hidden=false;$('#dw-keyv').focus();return}out=await callApi(k,DW.blobs)}
     fillFromRough(out);setMsg('');toast('ラフを読み込みました（'+DW.rows.length+'ページ）');
   }catch(e){
     if(e&&e.code==='not_granted')setMsg('画像の解析が許可されていません',true);
@@ -2236,6 +2244,35 @@ function scaffold(i){
   else if(k==='body'){add(textItem({x:m.x,y:m.y,w:m.w,h:m.h,text:t&&t!==prevT?t+'\n\n':'',size:9,leading:175,dir:v?'v':'h'}))}
   else if(k==='illust'){add(imageItem({x:-b,y:-b,w:r1(W+2*b),h:r1(H+2*b),fit:'cover'}))}
   else if(k==='colophon'){add(textItem({x:m.x,y:r1(m.y+m.h-40),w:m.w,h:40,text:[d.name||'','','発行日　','発行　','印刷　'].join('\n'),font:'Noto Sans JP',size:8,leading:170,dir:'h'}))}
+}
+const SHEET_KINDS=[['本文','扉','目次'],['イラスト','奥付','白']];
+async function printSheet(){
+  await document.fonts.load('700 20px "BIZ UDPGothic"','Thinbook台割書名総ページ数本文扉目次イラスト奥付白タイトルメモ〃＝前のページと同じ0123456789/').catch(()=>{});
+  const per=32,n=Math.max(per,Math.ceil(((DW.rows&&DW.rows.length)||0)/per)*per),sheets=n/per,st=S.doc.nombre.start;
+  const W=210,H=297,k=200/25.4,cv=document.createElement('canvas');cv.width=Math.round(W*k);cv.height=Math.round(H*k);
+  const x=cv.getContext('2d'),out=[],F=(w,sz)=>{x.font=`${w} ${sz}px "BIZ UDPGothic", sans-serif`};
+  const line=(x1,y1,x2,y2,lw)=>{x.lineWidth=lw;x.beginPath();x.moveTo(x1,y1);x.lineTo(x2,y2);x.stroke()};
+  for(let sh=0;sh<sheets;sh++){
+    x.setTransform(1,0,0,1,0,0);x.fillStyle='#ffffff';x.fillRect(0,0,cv.width,cv.height);x.setTransform(k,0,0,k,0,0);
+    x.fillStyle='#000000';x.strokeStyle='#000000';x.textBaseline='middle';x.textAlign='left';
+    for(const[fx,fy]of[[6,6],[W-14,6],[6,H-14],[W-14,H-14]])x.fillRect(fx,fy,8,8);
+    F(700,5);x.fillText('Thinbook 台割',18,10);F(400,3);x.fillText(`${sh+1} / ${sheets}`,62,10);
+    x.textAlign='right';F(400,2.8);x.fillText('〃＝前のページと同じ',W-18,10);x.textAlign='left';
+    F(400,3.2);x.fillText('書名',18,21);line(28,23.5,130,23.5,0.3);
+    x.fillText('総ページ数',140,21);x.lineWidth=0.3;x.strokeRect(158,17,24,7);
+    const cw=47.5,ch=31.25,gx=10,gy=30;
+    for(let r=0;r<8;r++)for(let c=0;c<4;c++){
+      const i=sh*per+r*4+c,x0=gx+c*cw,y0=gy+r*ch;
+      x.lineWidth=0.35;x.strokeRect(x0,y0,cw,ch);
+      F(700,5);x.fillText(String(st+i),x0+2,y0+4.2);
+      F(400,2.5);SHEET_KINDS.forEach((row,ri)=>row.forEach((lab,ci)=>{const bx=x0+2+ci*15,by=y0+9+ri*4.5;x.lineWidth=0.25;x.strokeRect(bx,by-1.4,2.8,2.8);x.fillText(lab,bx+3.8,by)}));
+      F(400,2.3);x.fillText('タイトル',x0+2,y0+20.5);line(x0+12,y0+22.5,x0+cw-2,y0+22.5,0.15);
+      x.fillText('メモ',x0+2,y0+28);line(x0+12,y0+30,x0+cw-2,y0+30,0.15);
+    }
+    const bl=await new Promise(r=>cv.toBlob(r,'image/jpeg',0.92));
+    out.push({w:W,h:H,px:[cv.width,cv.height],jpg:new Uint8Array(await bl.arrayBuffer())});
+  }
+  await saveFile('台割記入用紙.pdf',jpegPDF(out,'simplex'));
 }
 $('#bPlan').onclick=openDaiwari;
 
