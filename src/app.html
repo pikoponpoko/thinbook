@@ -101,6 +101,86 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
   .tools{grid-template-columns:repeat(4,1fr)}
   #left,#right{padding-left:max(0px,env(safe-area-inset-left,0px));padding-right:max(0px,env(safe-area-inset-right,0px))}
 }
+/* ---------- event sales ---------- */
+#sv{position:fixed;inset:0;z-index:15;background:var(--bg);display:flex;flex-direction:column;font-size:14px;overflow:hidden}
+#sv .svh{display:flex;align-items:center;gap:8px;min-height:48px;padding:6px max(16px,env(safe-area-inset-right,0px)) 6px max(16px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}
+#sv .svh h2{margin:0;font-size:15px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sv .svh .num{color:var(--sub)}
+#sv .svt{display:flex;border-bottom:1px solid var(--line);overflow-x:auto}
+#sv .svt button{flex:1;border:0;border-radius:0;background:transparent;padding:10px 8px;border-bottom:2px solid transparent;white-space:nowrap}
+#sv .svt button.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:700}
+#sv .svb{flex:1;overflow:auto;padding:12px max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:16px}
+#sv .svb>*{width:100%;max-width:880px;margin-inline:auto}
+#sv button{padding:8px 12px}
+#sv input,#sv select,#sv textarea{padding:7px 8px}
+#sv h3{margin:0;font-size:12px;color:var(--sub);letter-spacing:.04em}
+#sv .num{font-family:var(--num);font-variant-numeric:tabular-nums}
+#sv .danger{color:var(--danger)}
+.sv-sec{display:flex;flex-direction:column;gap:8px}
+.sv-ev{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:center;text-align:left;width:100%;background:var(--bg);border:1px solid var(--line)}
+#sv .sv-ev{padding:10px 12px}
+.sv-ev .d{font-family:var(--num);font-weight:700}
+.sv-ev .n{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sv-ev .m{grid-column:2/-1;color:var(--sub);font-size:12px;display:flex;flex-wrap:wrap;gap:4px 12px}
+.sv-ev .m .warn{color:var(--warn);font-weight:700}
+.sv-ev .m .err{color:var(--danger);font-weight:700}
+.sv-pos{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+.sv-items{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.sv-it{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;min-height:76px;background:var(--panel);border:1px solid var(--line)}
+#sv .sv-it{padding:10px}
+.sv-it b{font-size:14px;word-break:break-all}
+.sv-it .p{font-family:var(--num);font-size:16px;font-weight:700}
+.sv-it .r{font-family:var(--num);font-size:11px;color:var(--sub)}
+.sv-it .r.out{color:var(--danger);font-weight:700}
+.sv-it .c{align-self:flex-end;margin-top:auto;font-family:var(--num);font-weight:700;color:var(--accent)}
+.sv-cart{border:1px solid var(--line);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
+.sv-cart .f input{width:100%}
+.sv-line{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center}
+.sv-line .q{display:flex;align-items:center;gap:4px}
+#sv .sv-line .q button{padding:2px 10px}
+.sv-big{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.sv-big span{color:var(--sub)}
+.sv-big b{font-family:var(--num);font-size:26px}
+.sv-big b.short{color:var(--danger)}
+.sv-cash{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+#sv .sv-cash button{padding:8px 2px;font-family:var(--num)}
+.sv-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.sv-stats div{border:1px solid var(--line);border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.sv-stats span{color:var(--sub);font-size:12px}
+.sv-stats b{font-family:var(--num);font-size:20px}
+.sv-tbl{width:100%;border-collapse:collapse}
+.sv-tbl th,.sv-tbl td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:right;white-space:nowrap}
+.sv-tbl th{color:var(--sub);font-size:12px;font-weight:700}
+.sv-tbl th:first-child,.sv-tbl td:first-child{text-align:left;white-space:normal}
+.sv-tbl td{font-family:var(--num)}
+.sv-tbl td:first-child{font-family:var(--ui)}
+.sv-tbl td.out{color:var(--danger);font-weight:700}
+.sv-hist{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:6px 10px;align-items:center}
+.sv-hist .t{font-family:var(--num);color:var(--sub)}
+.sv-hist .x{font-size:12px;color:var(--sub);min-width:0}
+.sv-hist .a{font-family:var(--num);font-weight:700}
+#sv .sv-hist button{padding:2px 8px}
+.sv-edit{display:grid;grid-template-columns:minmax(0,1fr) 96px 80px auto;gap:6px;align-items:end}
+.sv-edit input{width:100%}
+.sv-float{max-width:200px}
+.sv-float input{width:100%}
+.sv-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.sv-form .f input{width:100%}
+.sv-form .wide{grid-column:1/-1}
+#sv textarea{width:100%;min-height:200px;resize:vertical;line-height:1.7}
+.sv-memo{border-left:2px solid var(--line);padding:2px 0 2px 10px;display:flex;flex-direction:column;gap:4px}
+.sv-memo b{font-size:12px;color:var(--sub)}
+.sv-memo p{margin:0;white-space:pre-wrap;line-height:1.7}
+.sv-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.sv-row .grow{flex:1}
+.sv-empty{color:var(--sub);padding:12px 0}
+.sv-cart .sv-empty{padding:0}
+@media (max-width:820px){
+  .sv-pos{grid-template-columns:minmax(0,1fr)}
+  .sv-cart{position:sticky;bottom:0}
+  .sv-edit{grid-template-columns:minmax(0,1fr) 80px 64px auto}
+  .sv-form{grid-template-columns:minmax(0,1fr)}
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
@@ -112,6 +192,7 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
     <div class="grp"><button id="bZo" aria-label="縮小">−</button><span id="zoomLbl">100%</span><button id="bZi" aria-label="拡大">＋</button><button id="bGuide" class="on">ガイド</button></div>
     <span id="docInfo"></span>
     <button id="bExport" class="primary">PDF書き出し</button>
+    <button id="bSales">頒布</button>
   </header>
   <aside id="left">
     <div class="tools">
@@ -135,9 +216,11 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
     <div id="tab-pf" class="tab" hidden></div>
   </aside>
 </div>
+<div id="sv" hidden></div>
 <div id="modal" hidden></div>
 <div id="toast" hidden></div>
 <input type="file" id="fOpen" accept=".json,application/json" hidden>
+<input type="file" id="fSales" accept=".json,application/json" hidden>
 <input type="file" id="fImg" accept="image/*" hidden>
 
 <script>
@@ -806,6 +889,148 @@ async function exportPDF(opt,progress){
   push(x+`trailer\n<< /Size ${N} /Root 1 0 R /Info 4 0 R /ID [<${fid}> <${fid}>] >>\nstartxref\n${xref}\n%%EOF\n`);
   return new Blob(parts,{type:'application/pdf'});
 }
+
+/* ---------- event sales (頒布) ---------- */
+const SV={data:{events:[]},ev:null,tab:'pos',cart:{},paid:null,loaded:false};
+const yen=n=>'¥'+Math.round(n||0).toLocaleString('ja-JP');
+const svToday=()=>{const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
+const svDays=s=>s?Math.round((new Date(s+'T00:00:00')-new Date(svToday()+'T00:00:00'))/864e5):null;
+const svMD=s=>{if(!s)return'';const[y,m,d]=s.split('-');return`${+m}/${+d}`};
+const svYMD=s=>s?s.replace(/-/g,'/'):'日付未定';
+function svSave(now){clearTimeout(svSave.t);const f=()=>kvSet('sales',SV.data);now?f():svSave.t=setTimeout(f,300)}
+function svCur(){return SV.data.events.find(e=>e.id===SV.ev)||null}
+function svSold(ev){const m={};for(const s of ev.sales)for(const l of s.lines)m[l.i]=(m[l.i]||0)+l.q;return m}
+function svLeft(ev,it,sold){return it.stock===''||it.stock==null?null:(+it.stock)-(sold[it.id]||0)}
+function svSorted(){const t=svToday(),ev=SV.data.events;
+  const up=ev.filter(e=>!e.date||e.date>=t).sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
+  const past=ev.filter(e=>e.date&&e.date<t).sort((a,b)=>b.date.localeCompare(a.date));return{up,past}}
+function svDue(lab,d){if(!d)return'';const n=svDays(d);const cls=n<0?'':n<=7?(n<=2?'err':'warn'):'';
+  return`<span class="${cls}">${lab} ${svMD(d)}${n<0?'':n===0?'（今日）':`（あと${n}日）`}</span>`}
+
+function svOpen(){$('#sv').hidden=false;document.body.style.overflow='hidden';SV.ev=null;svRender()}
+function svClose(){$('#sv').hidden=true;document.body.style.overflow='';svSave(true)}
+function svRender(){const ev=svCur();$('#sv').innerHTML=ev?svEvent(ev):svHome()}
+
+function svHome(){const{up,past}=svSorted();
+  const row=(e,isPast)=>{const sold=e.sales.reduce((a,s)=>a+s.total,0);
+    const meta=[e.venue&&esc(e.venue),e.space&&'スペース '+esc(e.space),isPast?'売上 '+yen(sold):svDue('申込締切',e.applyDue)+svDue('入稿締切',e.submitDue)].filter(Boolean).join('');
+    const n=svDays(e.date);
+    return`<button class="sv-ev" data-ev="${e.id}"><span class="d">${svYMD(e.date)}</span><span class="n">${esc(e.name||'無題のイベント')}</span><span class="num">${!isPast&&n!=null?(n===0?'今日':'あと'+n+'日'):''}</span>${meta?`<span class="m">${meta}</span>`:''}</button>`};
+  return`<div class="svh"><button data-act="close">閉じる</button><h2>イベント</h2><button class="primary" data-act="add">追加</button></div>
+  <div class="svb">
+    <section class="sv-sec"><h3>予定</h3>${up.length?up.map(e=>row(e,false)).join(''):'<div class="sv-empty">なし</div>'}</section>
+    ${past.length?`<section class="sv-sec"><h3>終了</h3>${past.map(e=>row(e,true)).join('')}</section>`:''}
+    <div class="sv-row"><button data-act="backup">バックアップを保存</button><button data-act="restore">バックアップを読み込む</button></div>
+  </div>`}
+
+function svEvent(ev){const tabs=[['pos','会計'],['sum','集計'],['items','頒布物'],['memo','反省メモ'],['info','日程・情報']];
+  const body={pos:svPos,sum:svSum,items:svItems,memo:svMemo,info:svInfo}[SV.tab](ev);
+  return`<div class="svh"><button data-act="home" aria-label="イベント一覧">←</button><h2>${esc(ev.name||'無題のイベント')}</h2><span class="num">${svYMD(ev.date)}</span></div>
+  <nav class="svt">${tabs.map(([k,l])=>`<button data-tab="${k}" class="${SV.tab===k?'on':''}">${l}</button>`).join('')}</nav>
+  <div class="svb">${body}</div>`}
+
+function svCartTotal(ev){let t=0;for(const[i,q]of Object.entries(SV.cart)){const it=ev.items.find(x=>x.id===i);if(it)t+=(+it.price||0)*q}return t}
+function svPos(ev){
+  if(!ev.items.length)return`<div class="sv-empty">頒布物が登録されていません</div><div class="sv-row"><button class="primary" data-tab="items">頒布物を登録</button></div>`;
+  const sold=svSold(ev),total=svCartTotal(ev),paid=SV.paid,change=paid==null?null:paid-total;
+  const lines=Object.entries(SV.cart).map(([i,q])=>{const it=ev.items.find(x=>x.id===i);if(!it)return'';
+    return`<div class="sv-line"><span>${esc(it.name||'無題')}</span><span class="q"><button data-dec="${i}" aria-label="減らす">−</button><b class="num">${q}</b><button data-inc="${i}" aria-label="増やす">＋</button></span><span class="num">${yen((+it.price||0)*q)}</span></div>`}).join('');
+  return`<div class="sv-pos">
+    <div class="sv-items">${ev.items.map(it=>{const l=svLeft(ev,it,sold),c=SV.cart[it.id]||0,rest=l==null?null:l-c;
+      return`<button class="sv-it" data-inc="${it.id}"><b>${esc(it.name||'無題')}</b><span class="p">${yen(it.price)}</span>${rest==null?'':`<span class="r${rest<=0?' out':''}">残 ${rest}</span>`}${c?`<span class="c">×${c}</span>`:''}</button>`}).join('')}</div>
+    <div class="sv-cart">
+      ${lines||'<div class="sv-empty">未選択</div>'}
+      <div class="sv-big"><span>合計</span><b>${yen(total)}</b></div>
+      <div class="sv-cash"><button data-paid="exact">ちょうど</button><button data-paid="1000">1,000</button><button data-paid="5000">5,000</button><button data-paid="10000">10,000</button></div>
+      <label class="f"><span>預かり</span><input type="number" id="sv-paid" inputmode="numeric" min="0" step="1" value="${paid==null?'':paid}"></label>
+      <div class="sv-big"><span>お釣り</span><b id="sv-change" class="${change!=null&&change<0?'short':''}">${change==null?'—':change<0?'不足 '+yen(-change):yen(change)}</b></div>
+      <div class="sv-row"><button data-act="clear">クリア</button><button class="primary grow" data-act="checkout"${total>0?'':' disabled'}>会計する</button></div>
+    </div></div>`}
+
+function svSum(ev){const sold=svSold(ev),total=ev.sales.reduce((a,s)=>a+s.total,0),qty=Object.values(sold).reduce((a,b)=>a+b,0);
+  const names={};ev.items.forEach(it=>names[it.id]=it.name);
+  const hist=[...ev.sales].reverse().map(s=>{const t=new Date(s.t);
+    return`<span class="t">${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}</span><span class="x">${s.lines.map(l=>esc(names[l.i]||l.n)+(l.q>1?' ×'+l.q:'')).join('、')}</span><span class="a">${yen(s.total)}</span><button data-void="${s.id}">取消</button>`}).join('');
+  return`<div class="sv-stats">
+      <div><span>売上</span><b>${yen(total)}</b></div>
+      <div><span>会計数</span><b>${ev.sales.length}</b></div>
+      <div><span>頒布数</span><b>${qty}</b></div>
+      <div><span>手元現金（釣り銭込み）</span><b>${yen(total+(+ev.float||0))}</b></div>
+    </div>
+    <table class="sv-tbl"><thead><tr><th>頒布物</th><th>単価</th><th>頒布</th><th>残</th><th>売上</th></tr></thead><tbody>
+    ${ev.items.map(it=>{const l=svLeft(ev,it,sold),n=sold[it.id]||0;return`<tr><td>${esc(it.name||'無題')}</td><td>${yen(it.price)}</td><td>${n}</td><td class="${l!=null&&l<=0?'out':''}">${l==null?'—':l}</td><td>${yen(n*(+it.price||0))}</td></tr>`}).join('')}
+    </tbody></table>
+    <section class="sv-sec"><h3>履歴</h3>${hist?`<div class="sv-hist">${hist}</div>`:'<div class="sv-empty">なし</div>'}</section>
+    <div class="sv-row"><button data-act="csv"${ev.sales.length?'':' disabled'}>CSV書き出し</button></div>`}
+
+function svItems(ev){
+  return`<section class="sv-sec">
+    <div class="sv-edit"><h3>名前</h3><h3>価格</h3><h3>搬入数</h3><span></span></div>
+    ${ev.items.map(it=>`<div class="sv-edit" data-item="${it.id}"><input type="text" data-f="name" value="${esc(it.name)}" aria-label="名前"><input type="number" class="num" data-f="price" inputmode="numeric" min="0" step="100" value="${it.price}" aria-label="価格"><input type="number" class="num" data-f="stock" inputmode="numeric" min="0" step="1" value="${it.stock??''}" aria-label="搬入数"><button data-delitem="${it.id}" aria-label="削除">削除</button></div>`).join('')}
+    <div class="sv-row"><button data-act="additem">頒布物を追加</button></div></section>
+    <label class="f sv-float"><span>釣り銭準備金</span><input type="number" class="num" id="sv-float" inputmode="numeric" min="0" step="1000" value="${ev.float||''}"></label>`}
+
+function svMemo(ev){const others=SV.data.events.filter(e=>e!==ev&&(e.memo||'').trim()).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  return`<textarea id="sv-memo" aria-label="反省メモ">${esc(ev.memo||'')}</textarea>
+    ${others.length?`<section class="sv-sec"><h3>過去のイベント</h3>${others.map(e=>`<div class="sv-memo"><b>${svYMD(e.date)}　${esc(e.name||'無題のイベント')}</b><p>${esc(e.memo)}</p></div>`).join('')}</section>`:''}`}
+
+function svInfo(ev){const F2=(lab,k,type,wide)=>`<label class="f${wide?' wide':''}"><span>${lab}</span><input type="${type}" data-ef="${k}" value="${esc(ev[k]||'')}"></label>`;
+  return`<div class="sv-form">${F2('イベント名','name','text',true)}${F2('開催日','date','date')}${F2('スペース','space','text')}${F2('会場','venue','text',true)}${F2('申込締切','applyDue','date')}${F2('入稿締切','submitDue','date')}</div>
+    <div class="sv-row"><button data-act="delev" class="danger">イベントを削除</button></div>`}
+
+function svAddEvent(){const{up,past}=svSorted();const prev=past[0]||up[up.length-1];
+  const ev={id:uid(),name:'',date:'',venue:'',space:'',applyDue:'',submitDue:'',float:prev?prev.float||0:0,
+    items:prev?prev.items.map(it=>({id:uid(),name:it.name,price:it.price,stock:it.stock})):[],sales:[],memo:''};
+  SV.data.events.push(ev);SV.ev=ev.id;SV.tab='info';SV.cart={};SV.paid=null;svSave();svRender();
+  const n=$('#sv [data-ef="name"]');if(n)n.focus()}
+function svCheckout(ev){const total=svCartTotal(ev);if(!(total>0))return;
+  if(SV.paid!=null&&SV.paid<total){toast('預かり金額が不足しています');return}
+  const lines=Object.entries(SV.cart).map(([i,q])=>{const it=ev.items.find(x=>x.id===i);return it?{i,n:it.name,q,p:+it.price||0}:null}).filter(Boolean);
+  ev.sales.push({id:uid(),t:Date.now(),lines,total,paid:SV.paid==null?total:SV.paid});
+  const ch=SV.paid==null?0:SV.paid-total;SV.cart={};SV.paid=null;svSave(true);svRender();toast(`${yen(total)} 会計しました`+(ch>0?`（お釣り ${yen(ch)}）`:''))}
+function svCSV(ev){const q=v=>{v=String(v??'');return/[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+  const rows=[['日時','頒布物','単価','数量','小計','会計合計','預かり']];
+  for(const s of ev.sales){const t=new Date(s.t),ts=`${t.getFullYear()}/${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
+    s.lines.forEach((l,k)=>rows.push([ts,l.n,l.p,l.q,l.p*l.q,k?'':s.total,k?'':s.paid]))}
+  saveFile(`${ev.name||'イベント'}_${ev.date||''}_売上.csv`,new Blob(['﻿'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv'}))}
+
+$('#bSales').onclick=svOpen;
+$('#sv').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const ev=svCur(),d=b.dataset;
+  if(d.ev){SV.ev=d.ev;SV.tab='pos';SV.cart={};SV.paid=null;svRender();return}
+  if(d.tab){SV.tab=d.tab;svRender();return}
+  if(d.inc){SV.cart[d.inc]=(SV.cart[d.inc]||0)+1;svRender();return}
+  if(d.dec){if(--SV.cart[d.dec]<=0)delete SV.cart[d.dec];svRender();return}
+  if(d.paid){SV.paid=d.paid==='exact'?svCartTotal(ev):+d.paid;svRender();return}
+  if(d.void){const s=ev.sales.find(x=>x.id===d.void);if(s&&confirm(`${yen(s.total)} の会計を取り消しますか？`)){ev.sales=ev.sales.filter(x=>x!==s);svSave(true);svRender()}return}
+  if(d.delitem){const it=ev.items.find(x=>x.id===d.delitem);if(it&&(!(svSold(ev)[it.id])||confirm('販売記録のある頒布物です。削除すると集計から外れます。削除しますか？'))){ev.items=ev.items.filter(x=>x!==it);delete SV.cart[it.id];svSave();svRender()}return}
+  switch(d.act){
+    case'close':svClose();break;
+    case'home':SV.ev=null;svSave(true);svRender();break;
+    case'add':svAddEvent();break;
+    case'clear':SV.cart={};SV.paid=null;svRender();break;
+    case'checkout':svCheckout(ev);break;
+    case'csv':svCSV(ev);break;
+    case'additem':ev.items.push({id:uid(),name:'',price:500,stock:''});svSave();svRender();{const r=$$('#sv .sv-edit[data-item] input[data-f="name"]');r[r.length-1]?.focus()}break;
+    case'delev':if(confirm(`「${ev.name||'無題のイベント'}」を削除しますか？販売記録も削除されます。`)){SV.data.events=SV.data.events.filter(x=>x!==ev);SV.ev=null;svSave(true);svRender()}break;
+    case'backup':saveFile(`thinbook_イベント_${svToday()}.json`,new Blob([JSON.stringify({app:'thinbook-sales',version:1,...SV.data})],{type:'application/json'}));break;
+    case'restore':$('#fSales').click();break;
+  }});
+$('#sv').addEventListener('input',e=>{const t=e.target,ev=svCur();if(!ev)return;
+  if(t.id==='sv-paid'){SV.paid=t.value===''?null:+t.value;const total=svCartTotal(ev),c=SV.paid==null?null:SV.paid-total,o=$('#sv-change');
+    o.textContent=c==null?'—':c<0?'不足 '+yen(-c):yen(c);o.classList.toggle('short',c!=null&&c<0);return}
+  if(t.id==='sv-memo'){ev.memo=t.value;svSave();return}
+  if(t.id==='sv-float'){ev.float=t.value===''?0:+t.value;svSave();return}
+  if(t.dataset.ef){ev[t.dataset.ef]=t.value;svSave();if(t.dataset.ef==='name')$('#sv .svh h2').textContent=t.value||'無題のイベント';return}
+  const row=t.closest('[data-item]');if(row&&t.dataset.f){const it=ev.items.find(x=>x.id===row.dataset.item);if(!it)return;
+    it[t.dataset.f]=t.dataset.f==='name'?t.value:t.value===''?(t.dataset.f==='stock'?'':0):+t.value;svSave()}});
+$('#sv').addEventListener('change',e=>{if(e.target.dataset.ef==='date')svRender()});
+$('#fSales').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+  try{const j=JSON.parse(await f.text());if(j.app!=='thinbook-sales'||!Array.isArray(j.events))throw new Error('イベントのバックアップファイルではありません');
+    const have=new Set(SV.data.events.map(x=>x.id));let n=0;for(const ev of j.events)if(!have.has(ev.id)){SV.data.events.push(ev);n++}
+    svSave(true);svRender();toast(n+'件のイベントを読み込みました')}catch(err){toast(err.message||'読み込めませんでした')}});
+window.addEventListener('keydown',e=>{if($('#sv').hidden)return;e.stopPropagation();
+  if(e.key==='Escape'&&!['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)){if(SV.ev){SV.ev=null;svRender()}else svClose()}},true);
+kvGet('sales').then(v=>{if(v&&Array.isArray(v.events)&&!SV.data.events.length)SV.data=v;SV.loaded=true});
 
 /* ---------- boot ---------- */
 window.addEventListener('resize',()=>{clearTimeout(window.__rz);window.__rz=setTimeout(dirtyAll,150)});
