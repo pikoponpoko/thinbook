@@ -96,6 +96,7 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
 .dlg.wide{width:min(640px,100%)}
 textarea.outline{width:100%;min-height:260px;resize:vertical;line-height:1.6;font-family:var(--ui)}
 .hint{font-size:11px;color:var(--sub)}
+#pNotes{width:100%;min-height:90px;resize:vertical;line-height:1.6}
 .aiask{display:flex;gap:6px}
 .aiask input{flex:1}
 #modal{position:fixed;inset:0;background:rgba(21,24,28,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
@@ -909,10 +910,14 @@ function drawLayThumbs(root){
 function layBtns(cur){return Object.entries(LAYOUTS).map(([k,l])=>`<button type="button" class="lay${k===cur?' on':''}" data-lay="${k}"><canvas></canvas>${esc(l.name)}</button>`).join('')}
 function renderSlideProps(el){
   const d=S.doc,pg=d.pages[S.page];
-  if(d.pptx){el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1}</h3></div>`;return}
+  const tts=typeof speak==='function';
+  const notes=`<div class="sec"><h3>発表者ノート</h3><textarea id="pNotes" spellcheck="false">${esc(pg.notes||'')}</textarea>${tts?'<div class="btns"><button id="pTts">読み上げ</button></div>':''}</div>`;
+  const bindNotes=()=>{$('#pNotes').oninput=e=>{pg.notes=e.target.value;clearTimeout(commitT);commitT=setTimeout(commit,600)};
+    if(tts)$('#pTts').onclick=()=>speak(pg.notes||'',(d.pres&&d.pres.lang)||'ja')};
+  if(d.pptx){el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1}</h3></div>`+notes;bindNotes();return}
   el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1} のレイアウト</h3><div class="lays" id="layCur">${layBtns(pg.layout)}</div></div>
-    <div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`;
-  drawLayThumbs(el);
+    <div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`+notes;
+  drawLayThumbs(el);bindNotes();
   $('#layCur').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
   $('#layAdd').onclick=e=>{const b=e.target.closest('.lay');if(b)addSlide(b.dataset.lay)};
 }
