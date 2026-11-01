@@ -37,6 +37,8 @@ header{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding-block:0
 #zoomLbl{font-family:var(--num);min-width:44px;text-align:center}
 header button{white-space:nowrap}
 #app.k-slide header .bk-only,#app:not(.k-slide) header .sl-only{display:none}
+#app.k-master .ph .grp,#app.k-master .tabs [data-tab=notes]{display:none}
+.tslot.mlay{padding-left:16px}
 #docInfo{color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
 aside{background:var(--panel);overflow:auto;min-height:0}
 #left{border-right:1px solid var(--line);display:flex;flex-direction:column}
@@ -412,6 +414,7 @@ textarea#pNotes{width:100%;min-height:100px;resize:vertical;line-height:1.6}
     <div class="grp bk-only"><button id="bPlan">台割</button><button id="bDw">自動台割</button></div>
     <button id="bBook" class="bk-only">仮の本</button>
     <button id="bOutline" hidden>構成</button>
+    <button id="bMaster" class="sl-only">マスター</button>
     <button id="bPres">プレゼン練習</button>
     <div class="grp" id="gApps"><button id="bNeta">ネタ帳</button><button id="bSales">頒布</button><button id="bXl">Excel</button></div>
     <button id="bHome" class="bk-only">家庭用印刷</button>
@@ -735,9 +738,11 @@ function drawGuides(ctx,i){
 }
 function drawPage(ctx,i,o){
   const d=S.doc,b=d.bleed,W=pw(d),H=d.trimH,pg=d.pages[i];
-  ctx.fillStyle=pg.bg?col(pg.bg,o.ch):'#ffffff';ctx.fillRect(-b,-b,W+2*b,H+2*b);
+  const B=mBg(pg);ctx.fillStyle=B.color?col(B.color,o.ch):'#ffffff';ctx.fillRect(-b,-b,W+2*b,H+2*b);
   ctx.save();ctx.beginPath();ctx.rect(-b,-b,W+2*b,H+2*b);ctx.clip();
-  if(pg.under)for(const it of pg.under)drawItem(ctx,it,o.ch,false);
+  if(B.img)drawItem(ctx,bgItem(B.img,-b,-b,W+2*b,H+2*b),o.ch,false);
+  for(const it of mUnder(pg))drawItem(ctx,it,o.ch,false);
+  if(o.preview&&pg.mk==='layout'&&!d.pptx&&LAYOUTS[pg.layout]){ctx.save();ctx.globalAlpha=0.35;for(const it of layoutSkel(pg.layout))drawItem(ctx,it,null,false);ctx.restore()}
   for(const it of pg.items)drawItem(ctx,it,o.ch,o.preview);
   drawNombre(ctx,i,o.ch);
   ctx.restore();
@@ -765,7 +770,7 @@ const io=new IntersectionObserver(es=>{for(const e of es){const i=+e.target.data
 function rebuild(){
   const d=S.doc,b=d.bleed,W=pw(d),H=d.trimH;S.s=PX*S.zoom;
   S.lmap=null;io.disconnect();spreadsEl.innerHTML='';pagesEl.innerHTML='';S.pageEls=[];S.thumbEls=[];S.visible.clear();lcache.clear();
-  const pwpx=(W+2*b)*S.s,phpx=(H+2*b)*S.s,TH=thumbH(),tS=TH/H,label=i=>d.kind==='cover'?'表紙':nombreText(i);
+  const pwpx=(W+2*b)*S.s,phpx=(H+2*b)*S.s,TH=thumbH(),tS=TH/H,label=i=>d.kind==='cover'?'表紙':S.mv?d.pages[i].name||'':nombreText(i);
   spreadsEl.style.setProperty('--sw',pwpx+'px');
   const slotsOf=pair=>{if(d.kind!=='body')return[[pair[0]]];const sl=[[],[]];for(const i of pair)sl[isLeft(i)?0:1].push(i);return sl};
   const sps=spreadsOf(d);
@@ -788,6 +793,7 @@ function rebuild(){
     for(const sl of slotsOf(pair)){
       const ts=document.createElement('div');ts.className='tslot';ts.style.minWidth=Math.round(W*tS)+'px';
       for(const i of sl){
+        if(S.mv&&d.pages[i].mk==='layout')ts.classList.add('mlay');
         const tc=document.createElement('canvas');tc.className='thumb';tc.dataset.i=i;tc.style.width=Math.round(W*tS)+'px';tc.style.height=TH+'px';
         const tn=document.createElement('div');tn.className='tno';tn.textContent=label(i)+(d.pages[i].plan&&d.pages[i].plan.title?' '+d.pages[i].plan.title:'');ts.append(tc,tn);S.thumbEls[i]=tc;S.tdirty.add(i);
       }
@@ -795,7 +801,7 @@ function rebuild(){
     }
     pagesEl.append(trow);
   }
-  $('#zoomLbl').textContent=Math.round(S.zoom*100)+'%';$('#pLbl').textContent=d.kind==='slide'?'スライド':'ページ';
+  $('#zoomLbl').textContent=Math.round(S.zoom*100)+'%';$('#pLbl').textContent=S.mv?'マスター':d.kind==='slide'?'スライド':'ページ';
   updateInfo();schedule();
 }
 function updateInfo(){const d=S.doc;const sl=d.kind==='slide';$('#app').classList.toggle('k-slide',sl);if(S.tab==='notes'){if(sl)renderNotes();else{const sh=$('#app').classList.contains('sheet');showTab('props');if(!sh)setSheet(false)}}$('#bOutline').hidden=!sl;$('#bPptx').classList.toggle('primary',sl);$('#bExport').classList.toggle('primary',!sl);$('#bExport').textContent=sl?'PDF書き出し':'入稿データ書き出し';
@@ -846,20 +852,20 @@ function setPage(i){if(S.page===i)return;const o=S.page;S.page=i;if(S.thumbEls[o
 let saveT=0;
 function commit(){S.lmap=null;const j=JSON.stringify(S.doc);if(j===S.last)return;S.undo.push(S.last);if(S.undo.length>100)S.undo.shift();S.redo=[];S.last=j;afterChange()}
 function afterChange(){clearTimeout(saveT);saveT=setTimeout(autosave,800);clearTimeout(pfT);pfT=setTimeout(runPreflight,400);$('#bUndo').disabled=!S.undo.length;$('#bRedo').disabled=!S.redo.length}
-function restore(j){S.last=j;S.doc=JSON.parse(j);S.lmap=null;if(S.sel&&!findItem(S.sel))S.sel=null;S.page=Math.min(S.page,S.doc.pages.length-1);rebuild();renderAll();afterChange()}
+function restore(j){S.last=j;S.doc=JSON.parse(j);if(S.mv){ensureMasters();swapIn()}S.lmap=null;if(S.sel&&!findItem(S.sel))S.sel=null;S.page=Math.min(S.page,S.doc.pages.length-1);rebuild();renderAll();afterChange()}
 function undo(){if(!S.undo.length)return;S.redo.push(S.last);restore(S.undo.pop())}
 function redo(){if(!S.redo.length)return;S.undo.push(S.last);restore(S.redo.pop())}
 function resetHistory(){S.undo=[];S.redo=[];S.last=JSON.stringify(S.doc);afterChange()}
 function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('thinbook',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
 async function kvSet(k,v){try{const db=await idb();await new Promise((res,rej)=>{const t=db.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=res;t.onerror=()=>rej(t.error)})}catch(e){}}
 async function kvGet(k){try{const db=await idb();return await new Promise((res,rej)=>{const t=db.transaction('kv','readonly');const r=t.objectStore('kv').get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}catch(e){return null}}
-function projectData(file){const used=new Set(),mu=new Set();S.doc.pages.forEach(p=>p.items.forEach(it=>{if(it.imageId)used.add(it.imageId);if(it.posterId)used.add(it.posterId);if(it.mediaId)mu.add(it.mediaId)}));
-  if(S.doc.pptx)S.doc.pages.forEach(p=>(p.under||[]).forEach(it=>{if(it.imageId)used.add(it.imageId)}));
+function projectData(file){const used=new Set(),mu=new Set();[...SL(),...MS()].forEach(p=>{p.items.forEach(it=>{if(it.imageId)used.add(it.imageId);if(it.posterId)used.add(it.posterId);if(it.mediaId)mu.add(it.mediaId)});if(p.bgImg&&p.bgImg.imageId)used.add(p.bgImg.imageId)});
+  if(S.doc.pptx)SL().forEach(p=>(p.under||[]).forEach(it=>{if(it.imageId)used.add(it.imageId)}));
   const fromPptx=!!(S.doc.pptx&&!file);
   const images={};for(const id of used){const im=S.images[id];if(!im)continue;
     if(fromPptx&&im.part)images[id]={part:im.part,w:im.w,h:im.h,name:im.name||''};
     else images[id]=im.blob?{blob:im.blob,w:im.w,h:im.h,name:im.name||''}:{src:im.src,w:im.w,h:im.h,name:im.name||''}}
-  const o={app:'thinbook',version:1,doc:S.doc,images};if(S.doc.pptx&&S.pptxSrc instanceof Uint8Array&&file)o.pptxSrc=u8b64(S.pptxSrc);
+  const o={app:'thinbook',version:1,doc:S.mv?{...S.doc,pages:S.mv.pages}:S.doc,images};if(S.doc.pptx&&S.pptxSrc instanceof Uint8Array&&file)o.pptxSrc=u8b64(S.pptxSrc);
   o.media={};for(const id of mu){const m=S.media[id];if(!m)continue;o.media[id]=fromPptx&&m.part?{part:m.part,name:m.name,type:m.type}:{blob:m.blob,name:m.name,type:m.type}}return o}
 function autosave(){kvSet('project',projectData())}
 async function loadProject(p){
@@ -979,7 +985,7 @@ async function pickImage(it){
     try{const [h]=await window.showOpenFilePicker({types:[{description:'画像',accept:{'image/*':['.png','.jpg','.jpeg','.psd','.webp','.gif','.bmp']}}]});await placeImageInto(it,await h.getFile(),h);return}
     catch(e){if(e&&e.name==='AbortError')return}
   }
-  imgTarget=it;$('#fImg').click();
+  bgPick=null;imgTarget=it;$('#fImg').click();
 }
 function saveHandles(){const o={};for(const [id,h] of Object.entries(handles))if(S.images[id])o[id]=h;kvSet('handles',o)}
 let linkBusy=false;
@@ -1069,7 +1075,7 @@ spreadsEl.addEventListener('pointerup',endDrag);spreadsEl.addEventListener('poin
 spreadsEl.addEventListener('dblclick',e=>{if(e.target.classList.contains('ined'))return;const it=selItem();if(it&&it.type==='text')editText(S.sel.page,it);else if(it&&it.type==='image')pickImage(it);else if(it&&it.type==='video'){if(it.mediaId)playVideo(it);else{vidTarget=it;$('#fVid').click()}}});
 stage.addEventListener('pointerdown',e=>{if(e.target===stage||e.target===spreadsEl||e.target.classList.contains('spread')||e.target.classList.contains('slot'))select(null)});
 let imgTarget=null;
-$('#fImg').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f&&imgTarget)placeImageInto(imgTarget,f)});
+$('#fImg').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';const cb=bgPick;bgPick=null;if(f&&cb)cb(f);else if(f&&imgTarget)placeImageInto(imgTarget,f)});
 spreadsEl.addEventListener('dragover',e=>{if(e.target.closest('.page'))e.preventDefault()});
 spreadsEl.addEventListener('drop',async e=>{
   const pg=e.target.closest('.page');if(!pg)return;e.preventDefault();
@@ -1151,7 +1157,7 @@ function colorFields(k,c){if(S.doc.color==='mono')return `<div class="row">${F('
 function renderProps(){
   if(S.tab!=='props')return;const el=$('#tab-props'),it=selItem(),d=S.doc;
   if(!it){
-    if(d.kind==='slide'){renderSlideProps(el);return}
+    if(d.kind==='slide'){if(S.mv)renderMasterProps(el);else renderSlideProps(el);return}
     if(d.kind==='cover'){el.innerHTML=`<div class="sec"><h3>表紙</h3><div class="ok">${esc(document.getElementById('docInfo').textContent)}</div></div>`;return}
     const pg=d.pages[S.page];
     el.innerHTML=`<div class="sec"><h3>ページ ${esc(nombreText(S.page))}（${isLeft(S.page)?'左':'右'}ページ）</h3>
@@ -1264,8 +1270,8 @@ $('#tab-doc').addEventListener('input',e=>{const t=e.target,k=t.dataset.dk;if(!k
 
 /* ---------- pages ---------- */
 function addPages(at,n){for(let k=0;k<n;k++)S.doc.pages.splice(at,0,newPage());rebuild();commit();setPage(at);toast(n+'ページ追加しました')}
-$('#bAddP').onclick=()=>{if(S.doc.kind==='cover')return;if(S.doc.kind==='slide'){addSlide('content');return}addPages(S.page+1,1)};
-$('#bDelP').onclick=()=>{const d=S.doc;if(d.kind==='cover'||d.pages.length<=1)return;if(d.pptx){toast('PowerPointファイルではスライドを削除できません');return}d.pages.splice(S.page,1);S.sel=null;S.page=Math.min(S.page,d.pages.length-1);rebuild();commit();renderProps();toast('ページを削除しました（Ctrl+Zで元に戻せます）')};
+$('#bAddP').onclick=()=>{if(S.doc.kind==='cover'||S.mv)return;if(S.doc.kind==='slide'){addSlide('content');return}addPages(S.page+1,1)};
+$('#bDelP').onclick=()=>{const d=S.doc;if(d.kind==='cover'||d.pages.length<=1||S.mv)return;if(d.pptx){toast('PowerPointファイルではスライドを削除できません');return}d.pages.splice(S.page,1);S.sel=null;S.page=Math.min(S.page,d.pages.length-1);rebuild();commit();renderProps();toast('ページを削除しました（Ctrl+Zで元に戻せます）')};
 
 /* ---------- preflight ---------- */
 let pfT=0,PF=[];
@@ -2761,7 +2767,7 @@ const SLOTS={title:['title','sub'],section:['num','title'],content:['title','bod
 const baseOf=k=>(LAYOUTS[k]||LAYOUTS.content).base;
 function cardLines(s){return String(s||'').split('\n').map(x=>x.replace(/^\s*[・\-\*•]\s*/,'').trim()).filter(Boolean)}
 const PH={title:'タイトル',sub:'サブタイトル',body:'本文',body2:'本文',num:'01',c1:'本文',c2:'本文',c3:'本文',c4:'本文'};
-function theme(){return THEMES[S.doc&&S.doc.theme]||THEMES.blue}
+function theme(){const t=THEMES[S.doc&&S.doc.theme]||THEMES.blue,f=S.doc&&S.doc.mfont;return f?{...t,...f}:t}
 function themePage(pg,T=theme()){
   if(pg.bgRole)pg.bg=hexC(T[pg.bgRole]);
   for(const it of pg.items){if(it.colorRole)it.color=hexC(T[it.colorRole]);if(it.fillRole)it.fill=hexC(T[it.fillRole]);if(it.fontRole)it.font=T[it.fontRole]}
@@ -2836,7 +2842,7 @@ function slideModel(pg){
   return{t,srcs,extras:texts,figs:P.figs,bg:P.bg,keep:P.keep}}
 function slideTheme(pg){const d=S.doc;if(!d.pptx)return theme();
   const hx=c=>'#'+cHex(c),A=d.trimW*d.trimH,ts=pg.items.filter(it=>it.type==='text'&&String(it.text||'').trim()).sort((p,q)=>q.size-p.size);
-  const bg=pg.bg?hx(pg.bg):'#FFFFFF',h=ts[0],bo=ts[1]||ts[0];
+  const B=mBg(pg),bg=B.color?hx(B.color):'#FFFFFF',h=ts[0],bo=ts[1]||ts[0];
   const fills=pg.items.filter(it=>it.type==='rect'&&it.fill&&it.w*it.h<A*0.6).map(it=>hx(it.fill)).filter(c=>c!==bg);
   return{bg,ink:h?hx(h.color):'#000000',sub:bo?hx(bo.color):'#000000',accent:fills[0]||(h?hx(h.color):'#000000'),on:bg,head:h?h.font:'Noto Sans JP',body:bo?bo.font:'Noto Sans JP'}}
 function layoutOk(k){return!S.doc.pptx||LAYOUTS[k].bg==='bg'}
@@ -2878,15 +2884,86 @@ function migrateSlides(){const d=S.doc;if(!d||d.kind!=='slide'||d.pptx||(d.layVe
 function setLayout(pi,key){const d=S.doc,pg=d.pages[pi];d.pages[pi]=relayout(pg,key,pi,slideTheme(pg));S.sel=null;S.lmap=null;dirty(pi);commit();renderProps()}
 function addSlide(key){const d=S.doc;if(d.pptx){toast('PowerPointファイルではスライドを追加できません');return}const at=Math.min(S.page+1,d.pages.length);d.pages.splice(at,0,makeSlide(key));rebuild();commit();setPage(at);renderProps();
   centerStage(at)}
-function setTheme(k){const d=S.doc;d.theme=k;d.pages.forEach(p=>themePage(p));dirtyAll();updateInfo();commit();renderDoc();renderProps()}
+function setTheme(k){const d=S.doc;d.theme=k;[...SL(),...MS()].forEach(p=>themePage(p));layThumbCache.clear();dirtyAll();updateInfo();commit();renderDoc();renderProps()}
 function themeGrid(cur){return `<div class="themes">${Object.entries(THEMES).map(([k,t])=>`<button type="button" class="th${k===cur?' on':''}" data-th="${k}"><span class="sw" style="background:${t.bg}"><i style="background:${t.accent}"></i><b style="color:${t.ink};font-family:'${t.head}'">Aa</b></span>${esc(t.name)}</button>`).join('')}</div>`}
 const layThumbCache=new Map();
+/* ---------- スライドマスター ---------- */
+/* マスター（全スライド共通）→ レイアウト → スライドの順に背景と図形を重ねる。マスター表示中は S.doc.pages をマスターとレイアウトの並びに差し替える */
+const SL=()=>S.mv?S.mv.pages:S.doc.pages;
+const MS=()=>(S.doc&&S.doc.masters)||[];
+let bgPick=null;
+function layOf(pg){const ms=MS();if(!ms.length||!pg||pg.mk)return null;return S.doc.pptx?ms.find(e=>e.mk==='layout'&&e.part===pg.lay)||null:ms.find(e=>e.mk==='layout'&&e.layout===pg.layout)||null}
+function masOf(L){const ms=MS();if(S.doc.pptx)return L?ms.find(e=>e.mk==='master'&&e.part===L.master)||null:null;return ms.find(e=>e.mk==='master')||null}
+function masterOfPage(pg){return pg.mk==='master'?pg:masOf(pg.mk==='layout'?pg:layOf(pg))}
+function mUnder(pg){
+  if(pg.under)return pg.under;
+  if(pg.mk==='master'||!MS().length)return[];
+  const keep=a=>a.filter(it=>!it.ph);
+  if(pg.mk==='layout'){const M=masOf(pg);return M&&pg.showMaster!==false?keep(M.items):[]}
+  if(pg.showMaster===false)return[];
+  const L=layOf(pg),M=masOf(L);
+  return[...(M&&(!L||L.showMaster!==false)?keep(M.items):[]),...(L?keep(L.items):[])]}
+function mBg(pg){
+  if(!S.doc.pptx){let img=pg.bgImg||null;
+    if(!img&&pg.mk!=='master'&&(!pg.bgRole||pg.bgRole==='bg')){const L=pg.mk?null:layOf(pg),M=masOf(L);img=(L&&L.bgImg)||(M&&M.bgImg)||null}
+    return{color:pg.bg,img}}
+  const ch=[pg];if(pg.mk!=='master'){const L=pg.mk==='layout'?pg:layOf(pg);if(L&&L!==pg)ch.push(L);const M=masOf(L);if(M)ch.push(M)}
+  for(const e of ch)if(e.bgImg||e.bg)return{color:e.bg||null,img:e.bgImg||null};
+  return{color:null,img:null}}
+const bgItem=(b,x,y,w,h)=>({type:'image',x,y,w,h,imageId:b.imageId,fit:'cover'});
+function layoutSkel(k){const ck='sk'+(S.doc.theme||'')+JSON.stringify(S.doc.mfont||'')+k;let pg=layThumbCache.get(ck);if(!pg){pg=makeSlide(k,{},theme());layThumbCache.set(ck,pg)}return pg.items}
+function ensureMasters(){const d=S.doc;if(d.pptx||d.kind!=='slide')return;
+  if(!d.masters)d.masters=[{id:uid(),mk:'master',name:'マスター',items:[],noNombre:true,bgRole:'bg'}];
+  for(const k of Object.keys(LAYOUTS))if(!d.masters.some(e=>e.layout===k))d.masters.push({id:uid(),mk:'layout',layout:k,name:LAYOUTS[k].name,items:[],noNombre:true,bgRole:LAYOUTS[k].bg});
+  const T=theme();d.masters.forEach(e=>themePage(e,T))}
+function swapIn(){const d=S.doc;S.mv.pages=d.pages;d.pages=d.masters;
+  Object.defineProperty(d,'toJSON',{value(){return{...this,pages:S.mv.pages}},configurable:true,enumerable:false})}
+function enterMaster(){const d=S.doc;if(d.kind!=='slide'||S.mv)return;
+  if(d.pptx&&!(d.masters&&d.masters.length)){toast('マスターを編集するには、PowerPointファイルをもう一度開いてください');return}
+  const had=!!d.masters;ensureMasters();const cur=d.pages[S.page],L=layOf(cur);
+  S.mv={pages:null,page:S.page};swapIn();S.sel=null;S.page=Math.max(0,d.pages.indexOf(L));
+  if(S.tab==='notes')showTab('props');$('#app').classList.add('k-master');$('#bMaster').classList.add('on');
+  if(!had)commit();rebuild();renderAll();
+  centerStage(S.page)}
+function exitMaster(){const d=S.doc;if(!S.mv)return;delete d.toJSON;d.pages=S.mv.pages;const p=S.mv.page;S.mv=null;S.sel=null;S.page=Math.min(p,d.pages.length-1);
+  $('#app').classList.remove('k-master');$('#bMaster').classList.remove('on');rebuild();renderAll();
+  centerStage(S.page)}
+$('#bMaster').onclick=()=>S.mv?exitMaster():enterMaster();
+$('header').addEventListener('click',e=>{const b=e.target.closest('button');if(b&&S.mv&&!['bMaster','bUndo','bRedo','bZo','bZi','bGuide'].includes(b.id))exitMaster()},true);
+async function pickBg(t){
+  const done=async f=>{try{const im=await readImage(f),id=uid();S.images[id]=im;t.bgImg={imageId:id};sepCache.clear();dirtyAll();commit();renderProps()}catch(err){toast(err.message)}};
+  if(window.showOpenFilePicker){try{const [h]=await window.showOpenFilePicker({types:[{description:'画像',accept:{'image/*':['.png','.jpg','.jpeg','.psd','.webp','.gif','.bmp']}}]});await done(await h.getFile());return}catch(e){if(e&&e.name==='AbortError')return}}
+  bgPick=done;$('#fImg').click()}
+function bgSec(t,show){
+  return `<div class="sec"><h3>背景</h3><div class="btns"><button id="bgPick">画像を選択</button>${t.bgImg?'<button id="bgDel">画像を削除</button>':''}</div>`+
+    (show?`<label class="chk"><input type="checkbox" id="bgShow"${t.showMaster!==false?' checked':''}> マスターの図形を表示</label>`:'')+`</div>`}
+function wireBg(t){
+  $('#bgPick').onclick=()=>pickBg(t);
+  const x=$('#bgDel');if(x)x.onclick=()=>{t.bgImg=null;dirtyAll();commit();renderProps()};
+  const c=$('#bgShow');if(c)c.onchange=()=>{if(c.checked)delete t.showMaster;else t.showMaster=false;dirtyAll();commit()}}
+function slideBgSec(pg){
+  const show=!pg.under&&MS().length>0&&(pg.showMaster===false||mUnder({...pg,showMaster:true}).length>0);
+  return bgSec(pg,show)}
+function setMasterFont(M,k,font){const d=S.doc;
+  if(!d.pptx){d.mfont={...(d.mfont||{}),[k==='mj'?'head':'body']:font};const T=theme();[...SL(),...MS()].forEach(p=>themePage(p,T));layThumbCache.clear()}
+  else{M.fonts={...M.fonts,[k]:font};
+    for(const p of [...SL(),...MS()]){if(masterOfPage(p)!==M)continue;for(const it of p.items)if(it.type==='text'&&it.src&&it.src.fref===k){it.font=font;it.src.o.font=font;lcache.delete(it.id)}}}
+  dirtyAll();commit();renderProps()}
+function renderMasterProps(el){
+  const d=S.doc,e=d.pages[S.page];if(!e){el.innerHTML='';return}
+  const T=theme(),fv=d.pptx?(e.fonts||{}):{mj:T.head,mn:T.body};
+  const fsel=(k,v)=>`<select data-mf="${k}">${(FONTS.some(f=>f[0]===v)||!v?FONTS:[...FONTS,[v,v]]).map(([a,b])=>`<option value="${esc(a)}"${a===v?' selected':''}>${esc(b)}</option>`).join('')}</select>`;
+  el.innerHTML=bgSec(e,e.mk==='layout')+(e.mk==='master'?`<div class="sec"><h3>フォント</h3>${F('見出し',fsel('mj',fv.mj||''))}${F('本文',fsel('mn',fv.mn||''))}</div>`:'');
+  wireBg(e);el.querySelectorAll('[data-mf]').forEach(s=>s.onchange=()=>setMasterFont(e,s.dataset.mf,s.value))}
+function bgBlipXml(rid,im,W,H){const r=W/H,ir=(im.w||1)/(im.h||1);let l=0,t=0;if(ir>r)l=(1-r/ir)/2;else t=(1-ir/r)/2;const p=v=>Math.round(v*100000);
+  return `<p:bg><p:bgPr><a:blipFill dpi="0" rotWithShape="1"><a:blip r:embed="${rid}"/>${l>1e-4||t>1e-4?`<a:srcRect l="${p(l)}" t="${p(t)}" r="${p(l)}" b="${p(t)}"/>`:'<a:srcRect/>'}<a:stretch><a:fillRect/></a:stretch></a:blipFill><a:effectLst/></p:bgPr></p:bg>`}
 function drawLayThumbs(root,T=theme()){
   const dpr=window.devicePixelRatio||1,px=!!S.doc.pptx;
   for(const b of root.querySelectorAll('.lay:not(.sug)')){const c=b.querySelector('canvas'),k=b.dataset.lay,ck=(S.doc.theme||'')+k;
     let pg=px?null:layThumbCache.get(ck);if(!pg){pg=makeSlide(k,{},T);if(!px)layThumbCache.set(ck,pg)}
     c.width=Math.round(120*dpr);c.height=Math.round(120*SH/SW*dpr);const ctx=c.getContext('2d'),s=c.width/SW;ctx.setTransform(s,0,0,s,0,0);
     ctx.fillStyle=cmykCss(pg.bg);ctx.fillRect(0,0,SW,SH);
+    if(!px){const B=mBg(pg);if(B.img)drawItem(ctx,bgItem(B.img,0,0,SW,SH),null,false);for(const it of mUnder(pg))drawItem(ctx,it,null,false)}
     for(const it of pg.items){if(it.type==='image'){ctx.fillStyle=T.sub;ctx.fillRect(it.x,it.y,it.w,it.h)}else drawItem(ctx,it,null,false)}}
 }
 function layBtns(cur){return Object.entries(LAYOUTS).filter(([k])=>layoutOk(k)).map(([k,l])=>`<button type="button" class="lay${k===cur?' on':''}" data-lay="${k}"><canvas></canvas>${esc(l.name)}</button>`).join('')}
@@ -2910,7 +2987,8 @@ function proposeLayouts(pi){
 }
 function drawSlideThumb(c,pg,T,wpx){
   const W=S.doc.trimW,H=S.doc.trimH,dpr=window.devicePixelRatio||1;c.width=Math.round(wpx*dpr);c.height=Math.round(wpx*H/W*dpr);c.style.aspectRatio=W+'/'+H;const ctx=c.getContext('2d'),s=c.width/W;ctx.setTransform(s,0,0,s,0,0);
-  ctx.fillStyle=pg.bg?cmykCss(pg.bg):'#ffffff';ctx.fillRect(0,0,W,H);
+  const B=mBg(pg);ctx.fillStyle=B.color?cmykCss(B.color):'#ffffff';ctx.fillRect(0,0,W,H);
+  if(B.img)drawItem(ctx,bgItem(B.img,0,0,W,H),null,false);for(const it of mUnder(pg))drawItem(ctx,it,null,false);
   for(const it of pg.items){if(it.type==='image'&&!(it.imageId&&S.images[it.imageId]&&S.images[it.imageId].img)){ctx.fillStyle=T.sub;ctx.fillRect(it.x,it.y,it.w,it.h)}else drawItem(ctx,it,null,false)}
   for(const it of pg.items)lcache.delete(it.id);
 }
@@ -2922,12 +3000,13 @@ function drawSugThumbs(root,pi){
 function renderSlideProps(el){
   const d=S.doc,pg=d.pages[S.page];
   el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1} のレイアウト案</h3><div class="lays sugs" id="laySug">${sugBtns(S.page)}</div></div>
-    <div class="sec"><h3>すべてのレイアウト</h3><div class="lays" id="layCur">${layBtns(pg.layout)}</div></div>`+
+    <div class="sec"><h3>すべてのレイアウト</h3><div class="lays" id="layCur">${layBtns(pg.layout)}</div></div>${slideBgSec(pg)}`+
     (d.pptx?'':`<div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`);
   drawLayThumbs(el,slideTheme(pg));drawSugThumbs(el,S.page);
   $('#laySug').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
   $('#layCur').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
   if(!d.pptx)$('#layAdd').onclick=e=>{const b=e.target.closest('.lay');if(b)addSlide(b.dataset.lay)};
+  wireBg(pg);
 }
 function renderNotes(){
   const el=$('#tab-notes'),d=S.doc;if(!d||d.kind!=='slide'){el.innerHTML='';return}
@@ -3152,7 +3231,7 @@ async function loadPendingImages(){
   const run=++lazyRun,d=S.doc,zip=S.pptxZip;if(!zip)return;
   const uses=new Map(),order=[];
   const idx=[...new Set([...[...S.visible].sort((a,b)=>a-b),...d.pages.keys()])];
-  for(const i of idx){const pg=d.pages[i];if(!pg)continue;for(const it of [...(pg.under||[]),...pg.items]){for(const id of [it.imageId,it.posterId]){const im=id&&S.images[id];if(!im||!im.pending)continue;
+  for(const i of idx){const pg=d.pages[i];if(!pg)continue;const B=mBg(pg);for(const it of [...(B.img?[B.img]:[]),...mUnder(pg),...pg.items]){for(const id of [it.imageId,it.posterId]){const im=id&&S.images[id];if(!im||!im.pending)continue;
     if(!uses.has(id)){uses.set(id,new Set());order.push(id)}uses.get(id).add(i)}}}
   let k=0;
   const worker=async()=>{while(k<order.length){if(run!==lazyRun)return;const id=order[k++],im=S.images[id];if(!im||!im.pending)continue;
@@ -3245,27 +3324,39 @@ function themeXml(T){
   `<a:fmtScheme name="Thinbook"><a:fillStyleLst>${ph}${ph}${ph}</a:fillStyleLst><a:lnStyleLst>${`<a:ln w="6350">${ph}</a:ln>`.repeat(3)}</a:lnStyleLst><a:effectStyleLst>${'<a:effectStyle><a:effectLst/></a:effectStyle>'.repeat(3)}</a:effectStyleLst><a:bgFillStyleLst>${ph}${ph}${ph}</a:bgFillStyleLst></a:fmtScheme></a:themeElements><a:objectDefaults/><a:extraClrSchemeLst/></a:theme>`;
 }
 async function exportPPTX(){
+  if(S.mv)exitMaster();
   if(S.doc.pptx)return patchPPTX();
   await ensureFonts();
   const d=S.doc,W=pw(d),H=d.trimH,n=d.pages.length,files=[],media=new Map(),vexts=new Map(),notesIdx=[];let mi=0,hasNotes=false;
   const T=d.kind==='slide'?theme():{bg:'#ffffff',ink:'#000000',sub:'#666666',accent:'#000000',head:'Noto Sans JP',body:'Noto Serif JP'};
   const cx=d.kind==='slide'?12192000:clamp(E(W),914400,51206400),cy=d.kind==='slide'?6858000:clamp(E(H),914400,51206400);
-  for(let i=0;i<n;i++){
-    const pg=d.pages[i],rels=[rel('rId1','slideLayout','../slideLayouts/slideLayout1.xml')],rmap={};let nid=2;
-    const ctx={id:()=>nid++,img:async id=>{if(rmap[id])return rmap[id];let m=media.get(id);
+  const mkCtx=rels=>{const rmap={};let nid=2;return{id:()=>nid++,img:async id=>{if(rmap[id])return rmap[id];let m=media.get(id);
       if(!m){const b=await imageBytes(id);m={name:`image${++mi}.${b.ext}`,u8:b.u8};media.set(id,m)}
       const rid='rId'+(rels.length+1);rels.push(rel(rid,'image','../media/'+m.name));rmap[id]=rid;return rid},
       video:async id=>{let m=media.get(id);if(!m){const v=S.media[id],e=vext(v);vexts.set(e,v.type||VMIME[e]||'video/mp4');m={name:`media${++mi}.${e}`,u8:new Uint8Array(await (await mediaBlob(v)).arrayBuffer())};media.set(id,m)}
-        const a='rId'+(rels.length+1),b='rId'+(rels.length+2);rels.push(rel(a,'http://schemas.microsoft.com/office/2007/relationships/media','../media/'+m.name),rel(b,'video','../media/'+m.name));return{embed:a,link:b}}};
+        const a='rId'+(rels.length+1),b='rId'+(rels.length+2);rels.push(rel(a,'http://schemas.microsoft.com/office/2007/relationships/media','../media/'+m.name),rel(b,'video','../media/'+m.name));return{embed:a,link:b}}}};
+  /* マスターとレイアウト：スライドが使うレイアウトごとに1つずつ書き出す */
+  const ms=d.kind==='slide'?MS():[],M=ms.find(e=>e.mk==='master'),lkeys=[...new Set(d.pages.map(p=>d.kind==='slide'&&p.layout||''))];
+  const bgX=async(t,ctx)=>t&&t.bgImg&&S.images[t.bgImg.imageId]?bgBlipXml(await ctx.img(t.bgImg.imageId),S.images[t.bgImg.imageId],W,H):'';
+  const mrels=[...lkeys.map((_,k)=>rel('rId'+(k+1),'slideLayout',`../slideLayouts/slideLayout${k+1}.xml`)),rel('rId'+(lkeys.length+1),'theme','../theme/theme1.xml')];
+  const mctx=mkCtx(mrels),mbody=M?await itemsXml(M.items,mctx):'',mbg=(M&&await bgX(M,mctx))||'<p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg>';
+  files.push({name:'ppt/slideMasters/slideMaster1.xml',data:XH+`<p:sldMaster ${NS}><p:cSld>${mbg}<p:spTree>${GRP}${mbody}</p:spTree></p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:sldLayoutIdLst>${lkeys.map((_,k)=>`<p:sldLayoutId id="${2147483649+k}" r:id="rId${k+1}"/>`).join('')}</p:sldLayoutIdLst><p:txStyles><p:titleStyle/><p:bodyStyle/><p:otherStyle/></p:txStyles></p:sldMaster>`},
+    {name:'ppt/slideMasters/_rels/slideMaster1.xml.rels',data:relsXml(mrels)});
+  for(let k=0;k<lkeys.length;k++){const L=ms.find(e=>e.mk==='layout'&&e.layout===lkeys[k]),lr=[rel('rId1','slideMaster','../slideMasters/slideMaster1.xml')],lc=mkCtx(lr);
+    const body=L?await itemsXml(L.items,lc):'',bg=await bgX(L,lc),nm=LAYOUTS[lkeys[k]]?LAYOUTS[lkeys[k]].name:'Blank';
+    files.push({name:`ppt/slideLayouts/slideLayout${k+1}.xml`,data:XH+`<p:sldLayout ${NS}${L&&L.showMaster===false?' showMasterSp="0"':''} preserve="1"><p:cSld name="${X(nm)}">${bg}<p:spTree>${GRP}${body}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`},
+      {name:`ppt/slideLayouts/_rels/slideLayout${k+1}.xml.rels`,data:relsXml(lr)})}
+  for(let i=0;i<n;i++){
+    const pg=d.pages[i],rels=[rel('rId1','slideLayout',`../slideLayouts/slideLayout${lkeys.indexOf(d.kind==='slide'&&pg.layout||'')+1}.xml`)],ctx=mkCtx(rels);
     const its=[...pg.items],nb=nombreItem(i);if(nb)its.push(nb);
     const body=await itemsXml(its,ctx);
-    const bg=pg.bg?`<p:bg><p:bgPr>${solid(pg.bg)}<a:effectLst/></p:bgPr></p:bg>`:'';
+    const bg=pg.bgImg?await bgX(pg,ctx):d.kind==='slide'&&mBg(pg).img?'':pg.bg?`<p:bg><p:bgPr>${solid(pg.bg)}<a:effectLst/></p:bgPr></p:bg>`:'';
     if(pg.notes&&String(pg.notes).trim()){hasNotes=true;rels.push(rel('rId'+(rels.length+1),'notesSlide',`../notesSlides/notesSlide${i+1}.xml`));
       const np=String(pg.notes).split('\n').map(l=>`<a:p>${l?`<a:r><a:rPr lang="ja-JP" dirty="0"/><a:t>${X(l)}</a:t></a:r>`:''}<a:endParaRPr lang="ja-JP" dirty="0"/></a:p>`).join('');
       files.push({name:`ppt/notesSlides/notesSlide${i+1}.xml`,data:XH+`<p:notes ${NS}><p:cSld><p:spTree>${GRP}${NOTE_SP(np)}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:notes>`});
       files.push({name:`ppt/notesSlides/_rels/notesSlide${i+1}.xml.rels`,data:relsXml([rel('rId1','notesMaster','../notesMasters/notesMaster1.xml'),rel('rId2','slide',`../slides/slide${i+1}.xml`)])});
       notesIdx.push(i+1)}
-    files.push({name:`ppt/slides/slide${i+1}.xml`,data:XH+`<p:sld ${NS}><p:cSld>${bg}<p:spTree>${GRP}${body}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`});
+    files.push({name:`ppt/slides/slide${i+1}.xml`,data:XH+`<p:sld ${NS}${pg.showMaster===false?' showMasterSp="0"':''}><p:cSld>${bg}<p:spTree>${GRP}${body}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`});
     files.push({name:`ppt/slides/_rels/slide${i+1}.xml.rels`,data:relsXml(rels)});
   }
   for(const m of media.values())files.push({name:'ppt/media/'+m.name,data:m.u8});
@@ -3274,7 +3365,7 @@ async function exportPPTX(){
   const now=new Date().toISOString().replace(/\.\d+Z$/,'Z'),ov=(p,t)=>`<Override PartName="/${p}" ContentType="${t}"/>`;
   const head=[
     {name:'[Content_Types].xml',data:XH+`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/>${[...vexts].map(([e,t])=>`<Default Extension="${e}" ContentType="${t}"/>`).join('')}`+
-      ov('ppt/presentation.xml',CT+'presentationml.presentation.main+xml')+ov('ppt/slideMasters/slideMaster1.xml',CT+'presentationml.slideMaster+xml')+ov('ppt/slideLayouts/slideLayout1.xml',CT+'presentationml.slideLayout+xml')+
+      ov('ppt/presentation.xml',CT+'presentationml.presentation.main+xml')+ov('ppt/slideMasters/slideMaster1.xml',CT+'presentationml.slideMaster+xml')+lkeys.map((_,k)=>ov(`ppt/slideLayouts/slideLayout${k+1}.xml`,CT+'presentationml.slideLayout+xml')).join('')+
       d.pages.map((_,i)=>ov(`ppt/slides/slide${i+1}.xml`,CT+'presentationml.slide+xml')).join('')+ov('ppt/theme/theme1.xml',CT+'theme+xml')+
       (hasNotes?ov('ppt/notesMasters/notesMaster1.xml',CT+'presentationml.notesMaster+xml')+ov('ppt/theme/theme2.xml',CT+'theme+xml')+notesIdx.map(k=>ov(`ppt/notesSlides/notesSlide${k}.xml`,CT+'presentationml.notesSlide+xml')).join(''):'')+
       ov('ppt/presProps.xml',CT+'presentationml.presProps+xml')+ov('ppt/viewProps.xml',CT+'presentationml.viewProps+xml')+ov('ppt/tableStyles.xml',CT+'presentationml.tableStyles+xml')+
@@ -3289,10 +3380,6 @@ async function exportPPTX(){
     {name:'ppt/viewProps.xml',data:XH+`<p:viewPr ${NS}/>`},
     {name:'ppt/tableStyles.xml',data:XH+`<a:tblStyleLst xmlns:a="${NA}" def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"/>`},
     {name:'ppt/theme/theme1.xml',data:themeXml(T)},
-    {name:'ppt/slideMasters/slideMaster1.xml',data:XH+`<p:sldMaster ${NS}><p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree>${GRP}</p:spTree></p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst><p:txStyles><p:titleStyle/><p:bodyStyle/><p:otherStyle/></p:txStyles></p:sldMaster>`},
-    {name:'ppt/slideMasters/_rels/slideMaster1.xml.rels',data:relsXml([rel('rId1','slideLayout','../slideLayouts/slideLayout1.xml'),rel('rId2','theme','../theme/theme1.xml')])},
-    {name:'ppt/slideLayouts/slideLayout1.xml',data:XH+`<p:sldLayout ${NS} type="blank" preserve="1"><p:cSld name="Blank"><p:spTree>${GRP}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`},
-    {name:'ppt/slideLayouts/_rels/slideLayout1.xml.rels',data:relsXml([rel('rId1','slideMaster','../slideMasters/slideMaster1.xml')])},
   ];
   return PZ.write([...head,...files],PPTX_MIME);
 }
@@ -3345,15 +3432,18 @@ async function importPPTXInner(file){
   const IMG=/\.(png|jpe?g|gif|bmp|webp|svg)$/i;
   const loadMedia=async target=>{if(imgIds.has(target))return imgIds.get(target);const id=uid();images[id]={part:target,name:target.split('/').pop(),w:1,h:1,pending:true};imgIds.set(target,id);return id};
   // theme + colour helpers per master
+  const mcache=new Map();
   const ctxOf=async(lpart)=>{
     const lx=lpart&&await xml(lpart),lrel=lpart?await rels(lpart):{};
-    const mpart=(relOf(lrel,'slideMaster')||{}).target,mx=mpart&&await xml(mpart),mrel=mpart?await rels(mpart):{};
+    const mpart=(relOf(lrel,'slideMaster')||{}).target;return{...(await ctxM(mpart)),lpart,lx,lrel}};
+  const ctxM=async(mpart)=>{if(mcache.has(mpart))return mcache.get(mpart);
+    const mx=mpart&&await xml(mpart),mrel=mpart?await rels(mpart):{};
     const tpart=(relOf(mrel,'theme')||{}).target,tx_=tpart&&await xml(tpart);
     const scheme={},fonts={mj:'',mn:''};
     if(tx_){const cs=tx_.getElementsByTagNameNS(NA,'clrScheme')[0];if(cs)for(const c of cs.children){const v=c.firstElementChild;if(v)scheme[c.localName]=v.localName==='srgbClr'?v.getAttribute('val'):(v.getAttribute('lastClr')||'000000')}
       for(const [k,tag] of [['mj','majorFont'],['mn','minorFont']]){const f=tx_.getElementsByTagNameNS(NA,tag)[0];if(f){const ea=kid(f,'ea'),la=kid(f,'latin');fonts[k]=(ea&&ea.getAttribute('typeface'))||(la&&la.getAttribute('typeface'))||''}}}
     const cmEl=mx&&mx.getElementsByTagNameNS(NP,'clrMap')[0],cmap={};if(cmEl)for(const a of cmEl.attributes)cmap[a.name]=a.value;
-    return{lpart,lx,lrel,mpart,mx,mrel,scheme,fonts,cmap};
+    const C={lpart:null,lx:null,lrel:{},mpart,mx,mrel,scheme,fonts,cmap,tpart};mcache.set(mpart,C);return C;
   };
   const color=(C,fill)=>{if(!fill)return null;const v=fill.firstElementChild;if(!v)return null;let hex=null;
     if(v.localName==='srgbClr')hex=v.getAttribute('val');else if(v.localName==='sysClr')hex=v.getAttribute('lastClr');
@@ -3382,10 +3472,10 @@ async function importPPTXInner(file){
       const ph=phOf(el);
       if(!W.ids&&ph)continue;
       if(W.ids)W.ids.push(id);
-      let g=xfOf(el),inh=false;
+      let g=xfOf(el),inh=false;const tpl=W.tpl&&ph?{ph:1}:null;
       if(!g&&ph){const s1=findPh(C.lx,ph),s2=findPh(C.mx,ph);g=(s1&&xfOf(s1))||(s2&&xfOf(s2));inh=true}
       if(!g)continue;const box=tf(g.x,g.y,g.w,g.h);const src=W.ids?{id,grp:inGrp,inh}:null;
-      const tag=(it,s)=>{if(src)it.src={...src,...s};return it};
+      const tag=(it,s)=>{if(src)it.src={...src,...s};if(tpl)it.ph=1;return it};
       if(ln==='pic'){const blip=el.getElementsByTagNameNS(NA,'blip')[0],r=blip&&W.rels[blip.getAttributeNS(NR,'embed')];let imageId=null;
         if(r&&r.target&&map.get(r.target)&&IMG.test(r.target))imageId=await loadMedia(r.target);
         const nvPr=kid(nv,'nvPr',NP),vf=nvPr&&kid(nvPr,'videoFile'),pm=el.getElementsByTagNameNS(P14,'media')[0];
@@ -3415,7 +3505,7 @@ async function importPPTXInner(file){
       const pick=f=>{for(const e of DR){const v=f(e);if(v!=null)return v}return null};
       let size=pick(e=>e.getAttribute('sz')?+e.getAttribute('sz')/100:null)||(isTitle?40:ph?24:18);size=Math.round(size*scale*10)/10;
       let font=pick(e=>{const f=kid(e,'ea')||kid(e,'latin');return f&&f.getAttribute('typeface')||null})||'';
-      if(!font||font.startsWith('+'))font=(font.startsWith('+mj')||(!font&&isTitle)?C.fonts.mj:C.fonts.mn)||'Noto Sans JP';
+      let fref=null;if(!font||font.startsWith('+')){fref=font.startsWith('+mj')||(!font&&isTitle)?'mj':'mn';font=C.fonts[fref]||'Noto Sans JP'}
       const col=pick(e=>color(C,kid(e,'solidFill')))||hexC('#'+(C.scheme[C.cmap.tx1||'dk1']||'000000'));
       const bold=pick(e=>e.getAttribute('b')!=null?e.getAttribute('b')==='1':null);
       const pPr=paras[0]&&kid(paras[0],'pPr'),al=pPr&&pPr.getAttribute('algn');
@@ -3424,35 +3514,42 @@ async function importPPTXInner(file){
       const anchor=(bp&&bp.getAttribute('anchor'))||(isTitle&&ph.type!=='ctrTitle'?'ctr':'t');
       const it=textItem({x:box.x+ins.l,y:box.y+ins.t,w:Math.max(1,box.w-ins.l-ins.r),h:Math.max(1,box.h-ins.t-ins.b),text,font,size,weight:bold?700:400,
         leading:clamp(leading,80,400),dir:vert?'v':'h',align:al==='ctr'?'center':al==='r'?'end':'start',anchor:anchor==='ctr'?'ctr':anchor==='b'?'b':'t',color:col});
-      W.out.push(tag(it,{kind:'text',ins,scale,o:{x:it.x,y:it.y,w:it.w,h:it.h,text,size,weight:it.weight,color:cHex(col),font}}));
+      W.out.push(tag(it,{kind:'text',ins,scale,fref,o:{x:it.x,y:it.y,w:it.w,h:it.h,text,size,weight:it.weight,color:cHex(col),font}}));
       }catch(err){errors.push(err)}
     }
   };
-  const underOf=async(C,sx)=>{
-    const showM=x=>!x||x.documentElement.getAttribute('showMasterSp')!=='0';
-    const k=C.lpart+'|'+showM(sx);if(underCache.has(k))return underCache.get(k);
-    const out=[];
-    if(showM(sx)){
-      if(showM(C.lx)&&C.mx){const t=C.mx.getElementsByTagNameNS(NP,'spTree')[0];if(t)await walk({C,rels:C.mrel,out,ids:null},t,TF0,false)}
-      if(C.lx){const t=C.lx.getElementsByTagNameNS(NP,'spTree')[0];if(t)await walk({C,rels:C.lrel,out,ids:null},t,TF0,false)}
-    }
-    underCache.set(k,out);return out;
-  };
+  /* マスターとレイアウトは編集できるページとして読み込む（プレースホルダーは ph 付きでスライドには重ねない） */
+  const entries=new Map();d.masters=[];
+  /* 表示できる要素にならなかった図形（空のプレースホルダーなど）は削除扱いにしない */
+  const prune=(ids,items)=>{const h=new Set(items.map(it=>it.src&&it.src.id));return ids.filter(i=>h.has(i))};
+  const entryOf=async(part,mk)=>{if(!part)return null;if(entries.has(part))return entries.get(part);
+    const C=mk==='master'?await ctxM(part):await ctxOf(part),x=mk==='master'?C.mx:C.lx;if(!x){entries.set(part,null);return null}
+    if(mk==='layout'&&C.mpart)await entryOf(C.mpart,'master');
+    const rs=mk==='master'?C.mrel:C.lrel,root=x.documentElement,cs=kid(root,'cSld',NP);
+    const e={id:uid(),mk,part,name:(cs&&cs.getAttribute('name'))||(mk==='master'?'マスター':'レイアウト'),items:[],srcIds:[],noNombre:true};
+    entries.set(part,e);d.masters.push(e);
+    if(mk==='layout'){e.master=C.mpart;if(root.getAttribute('showMasterSp')==='0')e.showMaster=e.show0=false}
+    else{e.fonts={...C.fonts};e.fonts0={...C.fonts};e.themePart=C.tpart||null}
+    const bg=await bgOf(C,x,part,rs);if(bg){if(bg.img)e.bgImg={imageId:bg.img};else if(bg.color)e.bg=bg.color}e.bg0=e.bgImg?e.bgImg.imageId:null;
+    const tree=cs&&kid(cs,'spTree',NP);if(tree)await walk({C,rels:rs,out:e.items,ids:e.srcIds,tpl:true},tree,TF0,false);
+    e.srcIds=prune(e.srcIds,e.items);return e};
+  for(const me of pres.getElementsByTagNameNS(NP,'sldMasterId')){const mp=(prel[me.getAttributeNS(NR,'id')]||{}).target;const M=await entryOf(mp,'master');if(!M)continue;
+    const mrel=await rels(mp);for(const le of (await xml(mp)).getElementsByTagNameNS(NP,'sldLayoutId')){const lp=(mrel[le.getAttributeNS(NR,'id')]||{}).target;if(lp)await entryOf(lp,'layout')}}
   for(let si=0;si<parts.length;si++){
     const {part,hidden}=parts[si];pptxProgress(`スライド ${si+1} / ${parts.length}`,si,parts.length);
     try{
       const sx=await xml(part);if(!sx)continue;const srel=await rels(part);
-      const C=await ctxOf((relOf(srel,'slideLayout')||{}).target);
-      const bg=(await bgOf(C,sx,part,srel))||(await bgOf(C,C.lx,C.lpart,C.lrel))||(await bgOf(C,C.mx,C.mpart,C.mrel));
-      const pg={id:uid(),items:[],noNombre:true,part,bg:bg&&bg.color||null,srcIds:[]};if(hidden)pg.hidden=true;
-      const under=[];if(bg&&bg.img)under.push(imageItem({x:0,y:0,w:r1(cx/EMU),h:r1(cy/EMU),imageId:bg.img,fit:'cover'}));
-      under.push(...await underOf(C,sx));if(under.length)pg.under=under;
+      const lpart=(relOf(srel,'slideLayout')||{}).target,C=await ctxOf(lpart);await entryOf(lpart,'layout');
+      const bg=await bgOf(C,sx,part,srel);
+      const pg={id:uid(),items:[],noNombre:true,part,lay:lpart||null,bg:bg&&bg.color||null,srcIds:[]};if(hidden)pg.hidden=true;
+      if(bg&&bg.img)pg.bgImg={imageId:bg.img};pg.bg0=bg&&bg.img||null;
+      if(sx.documentElement.getAttribute('showMasterSp')==='0')pg.showMaster=pg.show0=false;
       const npart=(relOf(srel,'notesSlide')||{}).target,nx=npart&&await xml(npart);
       if(nx){pg.notesPart=npart;for(const sp of nx.getElementsByTagNameNS(NP,'sp')){const ph=sp.getElementsByTagNameNS(NP,'ph')[0];if(!ph||(ph.getAttribute('type')||'body')!=='body')continue;
         pg.notes=[...sp.getElementsByTagNameNS(NA,'p')].map(p=>[...p.getElementsByTagNameNS(NA,'t')].map(t=>t.textContent).join('')).join('\n').trim();break}}
       pg.notesOrig=pg.notes||'';
       const tree=sx.getElementsByTagNameNS(NP,'spTree')[0];
-      if(tree)await walk({C,rels:srel,out:pg.items,ids:pg.srcIds},tree,TF0,false);
+      if(tree)await walk({C,rels:srel,out:pg.items,ids:pg.srcIds},tree,TF0,false);pg.srcIds=prune(pg.srcIds,pg.items);
       d.pages.push(pg);
     }catch(err){errors.push(err);d.pages.push({id:uid(),items:[],noNombre:true,part,srcIds:[],broken:true})}
     cache.delete(part);
@@ -3522,7 +3619,8 @@ async function patchPPTX(){
     const px=await parse('ppt/presentation.xml'),root=px.documentElement,lst=px.createElementNS(NP,'p:notesMasterIdLst'),idn=px.createElementNS(NP,'p:notesMasterId');idn.setAttributeNS(NR,'r:id','rIdTbNM');lst.appendChild(idn);
     const sm=kid(root,'sldMasterIdLst',NP);root.insertBefore(lst,sm?sm.nextSibling:root.firstChild);out.set('ppt/presentation.xml',ser(px));
     ctOver.push(['/'+nmPath,CT+'presentationml.notesMaster+xml'],['/'+th,CT+'theme+xml']);return nmPath};
-  for(const pg of S.doc.pages){
+  const W=S.doc.trimW,H=S.doc.trimH;
+  for(const pg of [...S.doc.pages,...MS()]){
     if(!pg.part||!map.get(pg.part))continue;
     const x=await parse(pg.part);let changed=false,rx=null;const rp=relsPath(pg.part);
     const byId=new Map();for(const c of x.getElementsByTagNameNS(NP,'cNvPr'))byId.set(c.getAttribute('id'),c.parentNode.parentNode);
@@ -3559,9 +3657,20 @@ async function patchPPTX(){
         out.set(np,XH+`<p:notes ${NS}><p:cSld><p:spTree>${GRP}${NOTE_SP(paras)}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:notes>`);
         out.set(relsPath(np),relsXml([rel('rId1','notesMaster','../notesMasters/'+nmp.split('/').pop()),rel('rId2','slide','../slides/'+pg.part.split('/').pop())]));
         await addRel(RT+'notesSlide','../notesSlides/'+np.split('/').pop());ctOver.push(['/'+np,CT+'presentationml.notesSlide+xml'])}}
+    const root=x.documentElement,cur=pg.bgImg&&pg.bgImg.imageId||null;
+    if(cur!==(pg.bg0||null)){const cs=kid(root,'cSld',NP),old=cs&&kid(cs,'bg',NP);if(cs){if(old)cs.removeChild(old);
+      const bx=cur&&S.images[cur]?bgBlipXml(await addImg(cur),S.images[cur],W,H):pg.mk==='master'?'<p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg>':'';
+      if(bx){const f=new DOMParser().parseFromString(`<r ${NS}>${bx}</r>`,'application/xml').documentElement.firstElementChild;cs.insertBefore(x.importNode(f,true),cs.firstChild)}changed=true}}
+    if(pg.mk!=='master'&&(pg.showMaster!==false)!==(pg.show0!==false)){if(pg.showMaster===false)root.setAttribute('showMasterSp','0');else root.removeAttribute('showMasterSp');changed=true}
     if(changed)out.set(pg.part,ser(x));
     if(rx)out.set(rp,ser(rx));
   }
+  /* マスターのフォントはテーマの見出し・本文フォントとして書き戻す */
+  for(const m of MS()){if(m.mk!=='master'||!m.themePart||!map.get(m.themePart)||!m.fonts0||(m.fonts.mj===m.fonts0.mj&&m.fonts.mn===m.fonts0.mn))continue;
+    const tx=out.has(m.themePart)?new DOMParser().parseFromString(out.get(m.themePart),'application/xml'):await parse(m.themePart);
+    for(const [k,tag] of [['mj','majorFont'],['mn','minorFont']]){if(m.fonts[k]===m.fonts0[k])continue;const f=tx.getElementsByTagNameNS(NA,tag)[0];if(!f)continue;
+      for(const n of ['latin','ea']){let e=kid(f,n);if(!e){e=tx.createElementNS(NA,'a:'+n);const l=kid(f,'latin');f.insertBefore(e,n==='ea'&&l?l.nextSibling:f.firstChild)}e.setAttribute('typeface',m.fonts[k])}}
+    out.set(m.themePart,ser(tx))}
   if(exts.size||ctOver.length){const ct=await parse('[Content_Types].xml'),root=ct.documentElement,have=new Set([...root.children].filter(c=>c.localName==='Default').map(c=>c.getAttribute('Extension').toLowerCase()));
     for(const [pn,t] of ctOver){const el=ct.createElementNS(root.namespaceURI,'Override');el.setAttribute('PartName',pn);el.setAttribute('ContentType',t);root.appendChild(el)}
     for(const [e,t] of exts)if(!have.has(e)){const el=ct.createElementNS(root.namespaceURI,'Default');el.setAttribute('Extension',e);el.setAttribute('ContentType',t);root.insertBefore(el,root.firstChild)}
