@@ -199,6 +199,20 @@ a{color:var(--accent)}
 .dw-foot{display:flex;justify-content:flex-end;align-items:center;gap:6px;padding:10px 12px;border-top:1px solid var(--line)}
 .dw-foot .sp{flex:1}
 @media (max-width:820px){.dw-body.img{grid-template-columns:minmax(0,1fr);grid-template-rows:30% minmax(0,1fr)}.dw-side{border-left:0;border-top:1px solid var(--line);order:-1}}
+#book{position:fixed;inset:0;z-index:15;background:var(--stage);display:grid;grid-template-rows:auto minmax(0,1fr) auto}
+#book .bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:6px max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px));background:var(--bg);border-bottom:1px solid var(--line)}
+#book .bar .sp{flex:1}
+#bkGut{width:56px}
+#bkStage{overflow:auto;display:flex;padding:16px;touch-action:pan-y pinch-zoom}
+.bk{position:relative;margin:auto;flex:none;perspective:2400px;cursor:pointer;user-select:none;-webkit-user-select:none;transition:transform .45s ease-in-out}
+.bk canvas{position:absolute;top:0;display:block;background:var(--paper)}
+.bk .spn{position:absolute;top:0}
+.leaf{position:absolute;top:0;height:100%;transform-style:preserve-3d;transition:transform .45s ease-in-out}
+.leaf canvas{position:absolute;top:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.leaf .bf{transform:rotateY(180deg)}
+#book .nav{display:flex;align-items:center;gap:8px;padding:8px max(12px,env(safe-area-inset-right,0px)) calc(8px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));background:var(--bg);border-top:1px solid var(--line)}
+#bkRange{flex:1;min-width:0;accent-color:var(--accent)}
+#bkPos{font-family:var(--num);min-width:9em;text-align:center;white-space:nowrap}
 @media (max-width:820px){
   html,body{height:100dvh}
   #app{grid-template-columns:minmax(0,1fr);grid-template-rows:44px minmax(0,1fr) auto auto;height:100dvh}
@@ -316,6 +330,7 @@ a{color:var(--accent)}
     <button id="bPlan">台割</button>
     <div class="grp"><button id="bUndo" title="取り消し Ctrl+Z" aria-label="取り消し">↶</button><button id="bRedo" title="やり直し Ctrl+Shift+Z" aria-label="やり直し">↷</button></div>
     <div class="grp"><button id="bZo" aria-label="縮小">−</button><span id="zoomLbl">100%</span><button id="bZi" aria-label="拡大">＋</button><button id="bGuide" class="on">ガイド</button></div>
+    <button id="bBook">仮の本</button>
     <span id="docInfo"></span>
     <div class="grp" id="gApps"><button id="bNeta">ネタ帳</button><button id="bSales">頒布</button><button id="bXl">Excel</button></div>
     <button id="bDw">自動台割</button>
@@ -356,6 +371,19 @@ a{color:var(--accent)}
 <div id="sv" hidden></div>
 <div id="modal" hidden></div>
 <div id="toast" hidden></div>
+<div id="book" hidden role="dialog" aria-modal="true" aria-label="仮の本">
+  <div class="bar">
+    <span class="grp"><button id="bkSaddle">中綴じ</button><button id="bkPerfect">無線綴じ</button></span>
+    <label class="chk" id="bkGutW">ノド隠れ<input type="number" id="bkGut" value="3" min="0" max="20" step="0.5">mm</label>
+    <button id="bkLoad"></button>
+    <button id="bkReal">実寸</button>
+    <span class="sp"></span>
+    <button id="bkClose">閉じる</button>
+  </div>
+  <div id="bkStage"><div class="bk" id="bk"></div></div>
+  <div class="nav"><button id="bkLeft" aria-label="左へめくる">◀</button><input type="range" id="bkRange" min="0" value="0" aria-label="ページ位置"><span id="bkPos"></span><button id="bkRight" aria-label="右へめくる">▶</button></div>
+</div>
+<input type="file" id="fBook" accept=".json,application/json" hidden>
 <input type="file" id="fOpen" accept=".json,application/json,.xlsx" hidden>
 <input type="file" id="fImg" accept="image/*,.psd" hidden>
 <input type="file" id="fTxt" accept=".txt,text/plain" hidden>
@@ -2111,6 +2139,138 @@ function scaffold(i){
   else if(k==='colophon'){add(textItem({x:m.x,y:r1(m.y+m.h-40),w:m.w,h:40,text:[d.name||'','','発行日　','発行　','印刷　'].join('\n'),font:'Noto Sans JP',size:8,leading:170,dir:'h'}))}
 }
 $('#bPlan').onclick=openDaiwari;
+
+/* ---------- 仮の本 ---------- */
+const BK={open:false,t:0,mode:'saddle',gut:3,real:false,other:null,src:null,leaves:[],sc:1,anim:null,cache:new Map()};
+const bkEl=$('#bk');
+function withSrc(src,fn){const d=S.doc,im=S.images;S.doc=src.doc;S.images=src.images;try{return fn()}finally{S.doc=d;S.images=im}}
+function bkBuild(){
+  const cur={doc:S.doc,images:S.images},o=BK.other;
+  const s=S.doc.kind==='cover'?{cover:cur,body:o}:{body:cur,cover:o};BK.src=s;
+  const body=s.body&&s.body.doc,cov=s.cover&&s.cover.doc,ref=body||cov;
+  BK.rtl=ref.binding==='right';BK.W=ref.trimW;BK.H=ref.trimH;
+  const n=body?body.pages.length:0,unit=BK.mode==='saddle'?4:2,tot=Math.ceil(n/unit)*unit;BK.n=n;BK.blank=tot-n;
+  const L=[{f:{k:'c1'},b:{k:'c2'}}];
+  for(let i=0;i<tot;i+=2)L.push({f:i<n?{k:'p',i}:{k:'w'},b:i+1<n?{k:'p',i:i+1}:{k:'w'}});
+  L.push({f:{k:'c3'},b:{k:'c4'}});
+  BK.leaves=L;BK.t=clamp(BK.t,0,L.length);
+  BK.g=BK.mode==='perfect'?clamp(+BK.gut||0,0,BK.W/2):0;
+  BK.spine=cov&&BK.mode==='perfect'?cov.spine:0;
+  BK.cache.clear();
+  const r=$('#bkRange');r.max=L.length;r.dir=BK.rtl?'rtl':'ltr';
+  $('#bkSaddle').classList.toggle('on',BK.mode==='saddle');$('#bkPerfect').classList.toggle('on',BK.mode==='perfect');
+  $('#bkGutW').hidden=BK.mode!=='perfect';$('#bkReal').classList.toggle('on',BK.real);
+  $('#bkLoad').textContent=S.doc.kind==='cover'?'本文を読み込む':'表紙を読み込む';
+}
+function bkFit(){
+  const st=$('#bkStage');
+  BK.sc=BK.real?PX:Math.max(0.2,Math.min((st.clientWidth-32)/(2*BK.W),(st.clientHeight-32)/BK.H));
+  BK.cache.clear();
+}
+/* role f: 表側（めくる前の側に出る） b: 裏側（めくった側に出る） */
+function bkSideOf(role){return (role==='f')!==BK.rtl?'R':'L'}
+function bkFace(face,role){
+  const key=face.k+(face.i==null?'':face.i)+role;let c=BK.cache.get(key);if(c)return c;
+  const cov=face.k==='c1'||face.k==='c4',g=cov?0:BK.g,w=BK.W-g,sc=BK.sc,dpr=window.devicePixelRatio||1;
+  c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*sc*dpr));c.height=Math.max(1,Math.round(BK.H*sc*dpr));
+  c.style.width=w*sc+'px';c.style.height=BK.H*sc+'px';
+  const ctx=c.getContext('2d');ctx.fillStyle='#ffffff';ctx.fillRect(0,0,c.width,c.height);
+  const ox=bkSideOf(role)==='R'?-g:0;
+  if(face.k==='p'&&BK.src.body)withSrc(BK.src.body,()=>{ctx.setTransform(sc*dpr,0,0,sc*dpr,ox*sc*dpr,0);drawPage(ctx,face.i,{ch:null,preview:false,guides:false})});
+  else if(cov&&BK.src.cover)withSrc(BK.src.cover,()=>{const d=S.doc,first=(face.k==='c1')===(d.binding==='right');
+    ctx.setTransform(sc*dpr,0,0,sc*dpr,(first?0:-(d.trimW+d.spine))*sc*dpr,0);drawPage(ctx,0,{ch:null,preview:false,guides:false})});
+  BK.cache.set(key,c);return c;
+}
+function bkSpine(){
+  const key='spine';let c=BK.cache.get(key);if(c)return c;
+  const d=BK.src.cover.doc,sc=BK.sc,dpr=window.devicePixelRatio||1,w=d.spine;
+  c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*sc*dpr));c.height=Math.max(1,Math.round(BK.H*sc*dpr));
+  c.style.width=w*sc+'px';c.style.height=BK.H*sc+'px';
+  const ctx=c.getContext('2d');ctx.fillStyle='#ffffff';ctx.fillRect(0,0,c.width,c.height);
+  withSrc(BK.src.cover,()=>{ctx.setTransform(sc*dpr,0,0,sc*dpr,-d.trimW*sc*dpr,0);drawPage(ctx,0,{ch:null,preview:false,guides:false})});
+  BK.cache.set(key,c);return c;
+}
+function bkPut(c,side,cls){c.className=cls||'';c.style.left=side==='R'?'50%':'';c.style.right=side==='L'?'50%':'';bkEl.append(c)}
+function bkShift(t){const L=BK.leaves.length,w=BK.W*BK.sc/2;
+  bkEl.style.transform=t===0?`translateX(${bkSideOf('f')==='R'?-w:w}px)`:t===L?`translateX(${bkSideOf('b')==='R'?-w:w}px)`:''}
+function bkStatics(tb,tf){
+  const L=BK.leaves;bkEl.innerHTML='';
+  bkEl.style.width=2*BK.W*BK.sc+'px';bkEl.style.height=BK.H*BK.sc+'px';
+  if(tb>=0&&tb<L.length)bkPut(bkFace(L[tb].b,'b'),bkSideOf('b'));
+  if(tf>=0&&tf<L.length)bkPut(bkFace(L[tf].f,'f'),bkSideOf('f'));
+}
+function bkLabel(f){if(f.k==='p')return withSrc(BK.src.body,()=>nombreText(f.i));return{c1:'表1',c2:'表2',c3:'表3',c4:'表4',w:'白'}[f.k]}
+function bkRender(){
+  const L=BK.leaves,t=BK.t;bkStatics(t-1,t);bkShift(t);
+  if(BK.spine>0&&(t===0||t===L.length)){const s=bkSpine();bkPut(s,t===0?bkSideOf('b'):bkSideOf('f'),'spn')}
+  const tb=t>0?bkLabel(L[t-1].b):'',tf=t<L.length?bkLabel(L[t].f):'';
+  $('#bkPos').textContent=[tb,tf].filter(Boolean).join(' ・ ')+'  / '+BK.n+'p'+(BK.blank?'（白'+BK.blank+'p）':'');
+  $('#bkRange').value=t;
+}
+function bkFinish(){const a=BK.anim;if(!a)return;BK.anim=null;clearTimeout(a.to);BK.t=a.nt;bkRender()}
+function bkGo(dir){
+  bkFinish();
+  const L=BK.leaves,nt=BK.t+dir;if(nt<0||nt>L.length)return;
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches){BK.t=nt;bkRender();return}
+  const k=dir>0?BK.t:BK.t-1;
+  if(dir>0)bkStatics(BK.t-1,BK.t+1);else bkStatics(BK.t-2,BK.t);
+  const lf=document.createElement('div');lf.className='leaf';lf.style.width=BK.W*BK.sc+'px';
+  if(BK.rtl){lf.style.right='50%';lf.style.transformOrigin='100% 50%'}else{lf.style.left='50%';lf.style.transformOrigin='0 50%'}
+  const fa=bkFace(L[k].f,'f'),ba=bkFace(L[k].b,'b');
+  for(const [c,cls] of [[fa,''],[ba,'bf']]){c.className=cls;c.style.left=BK.rtl?'':'0';c.style.right=BK.rtl?'0':''}
+  lf.append(fa,ba);
+  const end=BK.rtl?'rotateY(180deg)':'rotateY(-180deg)';
+  lf.style.transform=dir>0?'rotateY(0deg)':end;bkEl.append(lf);lf.getBoundingClientRect();
+  lf.style.transform=dir>0?end:'rotateY(0deg)';
+  bkShift(nt);BK.anim={nt,to:setTimeout(bkFinish,700)};lf.addEventListener('transitionend',bkFinish,{once:true});
+  $('#bkRange').value=nt;
+}
+function bkSide(side){bkGo(side===bkSideOf('f')?1:-1)}
+function bkJump(t){bkFinish();BK.t=clamp(t,0,BK.leaves.length);bkRender()}
+function bkRefresh(){bkFinish();bkBuild();bkFit();bkRender()}
+function bkOpen(){
+  select(null);closeModal();
+  BK.mode=S.doc.kind==='cover'||S.doc.pages.length<=40?'saddle':'perfect';
+  if(S.doc.kind==='cover'&&BK.other)BK.mode=BK.other.doc.pages.length<=40?'saddle':'perfect';
+  BK.open=true;BK.t=0;$('#book').hidden=false;bkRefresh();
+}
+function bkClose(){bkFinish();BK.open=false;$('#book').hidden=true;bkEl.innerHTML='';BK.cache.clear()}
+$('#bBook').onclick=bkOpen;
+$('#bkClose').onclick=bkClose;
+$('#bkSaddle').onclick=()=>{BK.mode='saddle';bkRefresh()};
+$('#bkPerfect').onclick=()=>{BK.mode='perfect';bkRefresh()};
+$('#bkGut').oninput=e=>{const v=parseFloat(e.target.value);if(isNaN(v)||v<0)return;BK.gut=v;bkRefresh()};
+$('#bkReal').onclick=()=>{BK.real=!BK.real;bkRefresh()};
+$('#bkLeft').onclick=()=>bkSide('L');$('#bkRight').onclick=()=>bkSide('R');
+$('#bkRange').oninput=e=>bkJump(+e.target.value);
+$('#bkLoad').onclick=()=>$('#fBook').click();
+$('#fBook').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+  try{const p=JSON.parse(await f.text());if(!p||!['thinbook','kumi'].includes(p.app)||!p.doc)throw new Error('Thinbookのプロジェクトファイルではありません');
+    const want=S.doc.kind==='cover'?'body':'cover';
+    if(p.doc.kind!==want)throw new Error(want==='cover'?'表紙のファイルを選んでください':'本文のファイルを選んでください');
+    const images={};
+    await Promise.all(Object.entries(p.images||{}).map(([id,m])=>new Promise(res=>{const img=new Image();img.onload=()=>{images[id]={...m,img};res()};img.onerror=res;img.src=m.src})));
+    BK.other={doc:p.doc,images};
+    if(p.doc.trimW!==S.doc.trimW||p.doc.trimH!==S.doc.trimH)toast('表紙と本文の仕上がりサイズが違います');
+    if(want==='body')BK.mode=p.doc.pages.length<=40?'saddle':'perfect';
+    bkRefresh();
+  }catch(err){toast(err.message||'開けませんでした')}});
+{let p0=null;
+  const st=$('#bkStage');
+  st.addEventListener('pointerdown',e=>{if(e.button)return;p0={x:e.clientX,y:e.clientY}});
+  st.addEventListener('pointerup',e=>{if(!p0)return;const dx=e.clientX-p0.x,dy=e.clientY-p0.y;p0=null;
+    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)){bkSide(dx<0?'R':'L');return}
+    if(Math.hypot(dx,dy)<8&&e.target.closest('.bk')){const r=bkEl.getBoundingClientRect();bkSide(e.clientX<r.left+r.width/2?'L':'R')}});
+  st.addEventListener('pointercancel',()=>p0=null);
+}
+window.addEventListener('keydown',e=>{if(!BK.open)return;
+  const tg=e.target.tagName;if(tg==='INPUT'&&e.target.type==='number'){if(e.key==='Escape')bkClose();e.stopImmediatePropagation();return}
+  const h={Escape:bkClose,ArrowLeft:()=>bkSide('L'),ArrowRight:()=>bkSide('R'),Home:()=>bkJump(0),End:()=>bkJump(BK.leaves.length)}[e.key];
+  if(h){e.preventDefault();h()}
+  if(!((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'))e.stopImmediatePropagation();
+},true);
+window.addEventListener('resize',()=>{if(BK.open){clearTimeout(BK.rz);BK.rz=setTimeout(()=>{bkFinish();bkFit();bkRender()},150)}});
+if(document.fonts)document.fonts.addEventListener('loadingdone',()=>{if(BK.open&&!BK.anim){BK.cache.clear();bkRender()}});
 
 /* ---------- boot ---------- */
 window.addEventListener('resize',()=>{clearTimeout(window.__rz);window.__rz=setTimeout(dirtyAll,150)});
