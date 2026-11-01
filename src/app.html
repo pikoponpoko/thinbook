@@ -83,6 +83,17 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
 .badge{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;background:var(--danger);color:var(--paper);font-size:10px;line-height:16px;font-family:var(--num)}
 .badge.w{background:var(--warn)}
 .ok{color:var(--sub)}
+.pfi.hp{grid-template-columns:8px minmax(0,1fr);cursor:default}
+.hpt{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;padding:8px;border:1px solid var(--line);border-radius:4px}
+.hpt>span{color:var(--sub)}
+.hpd{display:flex;flex-direction:column;gap:3px;max-height:180px;overflow:auto;font-family:var(--num);font-size:11px}
+.hps{display:grid;grid-template-columns:24px 1fr 1fr;gap:8px;align-items:center}
+.hps>b{font-weight:400;color:var(--sub);text-align:right}
+.hph>span{color:var(--sub);text-align:center}
+.hpf{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);background:var(--paper)}
+.hpf>i{font-style:normal;text-align:center;padding:2px 0;color:#15181c}
+.hpf>i+i{border-left:1px dashed var(--line)}
+.hpf>i.b{color:var(--sub)}
 #modal{position:fixed;inset:0;background:rgba(21,24,28,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 #modal[hidden]{display:none!important}
 .dlg{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:16px;width:min(420px,100%);display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow:auto}
@@ -111,6 +122,7 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
     <div class="grp"><button id="bUndo" title="取り消し Ctrl+Z" aria-label="取り消し">↶</button><button id="bRedo" title="やり直し Ctrl+Shift+Z" aria-label="やり直し">↷</button></div>
     <div class="grp"><button id="bZo" aria-label="縮小">−</button><span id="zoomLbl">100%</span><button id="bZi" aria-label="拡大">＋</button><button id="bGuide" class="on">ガイド</button></div>
     <span id="docInfo"></span>
+    <button id="bHome">家庭用印刷</button>
     <button id="bExport" class="primary">PDF書き出し</button>
   </header>
   <aside id="left">
@@ -806,6 +818,208 @@ async function exportPDF(opt,progress){
   push(x+`trailer\n<< /Size ${N} /Root 1 0 R /Info 4 0 R /ID [<${fid}> <${fid}>] >>\nstartxref\n${xref}\n%%EOF\n`);
   return new Blob(parts,{type:'application/pdf'});
 }
+
+/* ---------- home print ---------- */
+const PAPERS={A4:[210,297],B5:[182,257],A3:[297,420],B4:[257,364],'レター':[215.9,279.4],A5:[148,210]};
+const HP_EDGE=5;
+S.hp={mode:'saddle',paper:'auto',scale:'100',duplex:'short',flip:false,rev:false,marks:true};
+function hpPlan(o){
+  const d=S.doc,W=pw(d),H=d.trimH,cover=d.kind==='cover',two=!cover&&o.mode==='saddle';
+  const n0=d.pages.length,N=two?Math.ceil(n0/4)*4:n0,cw=two?2*W:W;
+  const orient=(p)=>{const[a,b]=PAPERS[p];return cw>H?[Math.max(a,b),Math.min(a,b)]:[Math.min(a,b),Math.max(a,b)]};
+  const fit=p=>{const[x,y]=orient(p);return cw<=x+0.6&&H<=y+0.6};
+  let key=o.paper;
+  if(key==='auto'){key=['A4','B5'].filter(fit).sort((a,b)=>PAPERS[a][0]*PAPERS[a][1]-PAPERS[b][0]*PAPERS[b][1])[0]||'A4'}
+  const[pW,pH]=orient(key),fits=fit(key);
+  const sc=o.scale==='fit'||!fits?Math.min(pW/cw,pH/H):1;
+  const ox=(pW-cw*sc)/2,oy=(pH-H*sc)/2;
+  const land=pW>pH,duplex=!cover&&o.duplex!=='manual'&&o.duplex!=='simplex';
+  const natural=land?'short':'long';
+  const sides=[];
+  if(two){
+    for(let s=0;s<N/4;s++){
+      const a=N-1-2*s,b=2*s,c=2*s+1,e=N-2-2*s,R=d.binding==='right';
+      sides.push({sheet:s,face:0,pages:R?[b,a]:[a,b]},{sheet:s,face:1,pages:R?[e,c]:[c,e]});
+    }
+  }else for(let i=0;i<N;i++)sides.push({sheet:cover?0:Math.floor(i/2),face:cover?0:i%2,pages:[i]});
+  const rotBack=(o.duplex==='short'||o.duplex==='long'?o.duplex!==natural:false)!==!!o.flip;
+  for(const sd of sides)sd.rot=sd.face===1&&rotBack;
+  const sheets=cover?1:two?N/4:Math.ceil(N/2);
+  return{d,W,H,n0,N,blank:N-n0,two,cover,key,pW,pH,land,fits,sc,ox,oy,cw,sides,sheets,duplex};
+}
+function hpChecks(P){
+  const d=P.d,out=[],edge=[],full=[];
+  P.sides.forEach(sd=>sd.pages.forEach((pi,k)=>{
+    if(pi>=P.n0)return;const pg=d.pages[pi],cx=P.ox+P.sc*k*P.W;
+    const tooClose=(x0,y0,x1,y1)=>{x0=Math.max(x0,0);y0=Math.max(y0,0);x1=Math.min(x1,P.W);y1=Math.min(y1,P.H);if(x1<=x0||y1<=y0)return false;
+      const X0=cx+P.sc*x0,X1=cx+P.sc*x1,Y0=P.oy+P.sc*y0,Y1=P.oy+P.sc*y1;return X0<HP_EDGE||Y0<HP_EDGE||X1>P.pW-HP_EDGE||Y1>P.pH-HP_EDGE};
+    let e=false,f=false;
+    for(const it of pg.items){
+      if(it.type==='text'){const L=layout(it);if(L.bbox&&tooClose(it.x+L.bbox.x0,it.y+L.bbox.y0,it.x+L.bbox.x1,it.y+L.bbox.y1))e=true}
+      else if((it.type==='rect'&&it.fill)||(it.type==='image'&&it.imageId)){if(tooClose(it.x,it.y,it.x+it.w,it.y+it.h))f=true}
+    }
+    const nb=d.nombre;
+    if(!P.cover&&nb&&nb.mode!=='none'&&!pg.noNombre){const y=nb.mode==='hidden'?P.H-25:P.H-nb.offset,h=nb.size*PT;
+      const L=isLeft(pi),x=nb.mode==='center'?P.W/2:nb.mode==='hidden'?(L?P.W-2:2):(L?d.margins.outer:P.W-d.margins.outer);
+      if(tooClose(x-h*2,y-h/2,x+h*2,y+h/2))e=true}
+    const lab=P.cover?'表紙':nombreText(pi);
+    if(e&&!edge.includes(lab))edge.push(lab);if(f&&!full.includes(lab))full.push(lab);
+  }));
+  const pl=a=>a.length>6?a.slice(0,6).map(x=>'p.'+x).join('、')+` ほか${a.length-6}`:a.map(x=>P.cover?x:'p.'+x).join('、');
+  if(!P.fits&&P.sc<1)out.push({lv:'warn',msg:`用紙に収まらないため ${Math.round(P.sc*100)}% に縮小されます`});
+  if(edge.length)out.push({lv:'err',msg:`用紙の端から${HP_EDGE}mm以内に文字があります。フチなし印刷でないと欠けます（${pl(edge)}）`});
+  if(full.length)out.push({lv:'warn',msg:`ページ端まで届く塗り・画像があります。フチなし印刷でないと端が白くなります（${pl(full)}）`});
+  if(P.two&&P.sheets>15)out.push({lv:'warn',msg:`用紙${P.sheets}枚を中綴じにします。15枚を超えると折りにくく、内側のページが小口側へずれます`});
+  if(P.cover&&P.sc!==1)out.push({lv:'warn',msg:'表紙が実寸ではないため、本文と大きさが合いません'});
+  return out;
+}
+function hpDrawSide(ctx,P,sd,o,test){
+  const d=P.d,b=d.bleed,ch=d.color==='mono'?'g':undefined;
+  ctx.save();ctx.fillStyle='#ffffff';ctx.fillRect(0,0,P.pW,P.pH);
+  if(sd.rot){ctx.translate(P.pW,P.pH);ctx.rotate(Math.PI)}
+  ctx.translate(P.ox,P.oy);ctx.scale(P.sc,P.sc);
+  const mx=P.ox/P.sc,my=P.oy/P.sc,bx=Math.min(b,mx),by=Math.min(b,my),n=sd.pages.length;
+  sd.pages.forEach((pi,k)=>{
+    const x0=k*P.W,l=k===0?bx:0,r=k===n-1?bx:0;
+    ctx.save();
+    if(test){
+      ctx.strokeStyle='#000000';ctx.lineWidth=0.3/P.sc;ctx.strokeRect(x0,0,P.W,P.H);
+      ctx.fillStyle='#000000';ctx.textAlign='center';ctx.textBaseline='middle';
+      const lab=pi>=P.n0?'白':P.cover?'表紙':'p.'+nombreText(pi),fs=Math.min(P.W,P.H)*0.22;
+      ctx.font=`700 ${fs}px "BIZ UDPGothic", sans-serif`;ctx.fillText(lab,x0+P.W/2,P.H*0.45);
+      ctx.font=`700 ${fs*0.35}px "BIZ UDPGothic", sans-serif`;ctx.fillText('▲ 上',x0+P.W/2,P.H*0.12);
+    }else{
+      ctx.beginPath();ctx.rect(x0-l,-by,P.W+l+r,P.H+2*by);ctx.clip();
+      if(pi<P.n0){ctx.translate(x0,0);drawPage(ctx,pi,{ch,preview:false,guides:false})}
+    }
+    ctx.restore();
+  });
+  ctx.strokeStyle='#000000';ctx.lineWidth=0.15/P.sc;ctx.beginPath();
+  const L=(x1,y1,x2,y2)=>{ctx.moveTo(x1,y1);ctx.lineTo(x2,y2)};
+  const cw=P.cw,H=P.H;
+  if(o.marks&&!test){
+    const ax=Math.min(mx-bx-1,6),ay=Math.min(my-by-1,6);
+    for(const [cx,sx] of [[0,-1],[cw,1]])for(const [cy,sy] of [[0,-1],[H,1]]){
+      if(ay>=2)L(cx,cy+sy*(by+1),cx,cy+sy*(by+1+ay));
+      if(ax>=2)L(cx+sx*(bx+1),cy,cx+sx*(bx+1+ax),cy);
+    }
+    if(P.two&&ay>=2){L(P.W,-(by+1),P.W,-(by+1+ay));L(P.W,H+by+1,P.W,H+by+1+ay)}
+  }
+  ctx.stroke();
+  if(test){
+    ctx.save();ctx.setLineDash([2/P.sc,1.5/P.sc]);ctx.beginPath();if(P.two){L(P.W,0,P.W,H)}ctx.stroke();ctx.restore();
+    ctx.fillStyle='#000000';ctx.textAlign='center';ctx.textBaseline='middle';
+    const fs=Math.min(cw,H)*0.06;ctx.font=`700 ${fs}px "BIZ UDPGothic", sans-serif`;
+    ctx.fillText(`${sd.sheet+1}枚目 ${sd.face?'裏':'表'}`,cw/2,H*0.72);
+    const u=100/P.sc,y=H*0.85;ctx.lineWidth=0.3/P.sc;ctx.beginPath();L((cw-u)/2,y,(cw+u)/2,y);L((cw-u)/2,y-2/P.sc,(cw-u)/2,y+2/P.sc);L((cw+u)/2,y-2/P.sc,(cw+u)/2,y+2/P.sc);ctx.stroke();
+    ctx.font=`400 ${3.5/P.sc}px "BIZ UDPGothic", sans-serif`;ctx.textBaseline='top';ctx.fillText('100mm',cw/2,y+3/P.sc);
+  }
+  ctx.restore();
+}
+function jpegPDF(pages,dup){
+  const parts=[];let len=0;const offs=[];
+  const push=x=>{const u=typeof x==='string'?enc.encode(x):x;parts.push(u);len+=u.length};
+  const obj=(id,body,stream)=>{offs[id]=len;push(id+' 0 obj\n'+body);if(stream){push('\nstream\n');push(stream);push('\nendstream')}push('\nendobj\n')};
+  push('%PDF-1.7\n');push(new Uint8Array([37,226,227,207,211,10]));
+  const f=v=>(Math.round(v*MMPT*1000)/1000).toString(),kids=[];let id=4;
+  for(const p of pages){
+    const pid=id,cid=id+1,iid=id+2;id+=3;kids.push(pid);
+    obj(iid,`<< /Type /XObject /Subtype /Image /Width ${p.px[0]} /Height ${p.px[1]} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpg.length} >>`,p.jpg);
+    const cs=`q ${f(p.w)} 0 0 ${f(p.h)} 0 0 cm /Im0 Do Q`;
+    obj(cid,`<< /Length ${cs.length} >>`,enc.encode(cs));
+    obj(pid,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f(p.w)} ${f(p.h)}] /Resources << /XObject << /Im0 ${iid} 0 R >> /ProcSet [/PDF /ImageC] >> /Contents ${cid} 0 R >>`);
+  }
+  const vp=`/ViewerPreferences << /PrintScaling /None /Duplex /${dup==='short'?'DuplexFlipShortEdge':dup==='long'?'DuplexFlipLongEdge':'Simplex'} >>`;
+  obj(1,`<< /Type /Catalog /Pages 2 0 R ${vp} >>`);
+  obj(2,`<< /Type /Pages /Kids [${kids.map(x=>x+' 0 R').join(' ')}] /Count ${kids.length} >>`);
+  obj(3,`<< /Title ${pdfStr(S.doc.name||'無題')} /Creator (Thinbook) /Producer (Thinbook) >>`);
+  const xref=len,N=id;let x=`xref\n0 ${N}\n0000000000 65535 f \n`;for(let j=1;j<N;j++)x+=String(offs[j]).padStart(10,'0')+' 00000 n \n';
+  push(x+`trailer\n<< /Size ${N} /Root 1 0 R /Info 3 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Blob(parts,{type:'application/pdf'});
+}
+async function hpRender(P,o,sides,test,progress){
+  if(!test)await ensureFonts();else await document.fonts.load('700 20px "BIZ UDPGothic"','表裏枚目上白p.0123456789').catch(()=>{});
+  let dpi=300;while((P.pW*dpi/25.4)*(P.pH*dpi/25.4)>16e6)dpi-=25;
+  const k=dpi/25.4,cv=document.createElement('canvas');cv.width=Math.round(P.pW*k);cv.height=Math.round(P.pH*k);
+  const ctx=cv.getContext('2d'),out=[];
+  for(let j=0;j<sides.length;j++){
+    if(exporting==='cancel')return null;
+    ctx.setTransform(k,0,0,k,0,0);hpDrawSide(ctx,P,sides[j],o,test);
+    const bl=await new Promise(r=>cv.toBlob(r,'image/jpeg',0.92));
+    out.push({w:P.pW,h:P.pH,px:[cv.width,cv.height],jpg:new Uint8Array(await bl.arrayBuffer())});
+    sepCache.clear();progress&&progress(j+1,sides.length);await new Promise(r=>setTimeout(r,0));
+  }
+  return out;
+}
+function hpSettingsRows(P,o){
+  const paper=`${P.key} ${P.land?'横':'縦'}`;
+  const dup=P.cover?'片面':o.duplex==='manual'?'片面（表面のファイル → 用紙を裏返して → 裏面のファイル）':o.duplex==='simplex'?'片面':`両面・${o.duplex==='short'?'短辺とじ':'長辺とじ'}`;
+  return [['用紙',paper],['倍率','実際のサイズ（100%）'],['両面',dup]];
+}
+function hpDiagram(P){
+  if(P.cover)return '';
+  const lab=pi=>pi>=P.n0?'白':nombreText(pi),cells=sd=>`<span class="hpf">${sd.pages.map(pi=>`<i${pi>=P.n0?' class="b"':''}>${esc(lab(pi))}</i>`).join('')}</span>`;
+  let h='';for(let s=0;s<P.sheets;s++){const f=P.sides.find(x=>x.sheet===s&&x.face===0),bk=P.sides.find(x=>x.sheet===s&&x.face===1);
+    h+=`<div class="hps"><b>${s+1}</b>${cells(f)}${bk?cells(bk):'<span class="hpf"></span>'}</div>`}
+  return `<div class="hpd"><div class="hps hph"><b></b><span>表</span><span>裏</span></div>${h}</div>`;
+}
+$('#bHome').onclick=()=>{
+  const d=S.doc,o=S.hp,cover=d.kind==='cover';if(cover)o.mode='single';
+  const dlg=modal(`<h2>家庭用プリンターで印刷</h2>
+    <div class="row">
+      ${cover?'':F('綴じ方','<select id="h-mode"><option value="saddle">中綴じ（2つ折り）</option><option value="single">1ページずつ</option></select>')}
+      ${F('用紙',`<select id="h-paper"><option value="auto">自動</option>${Object.keys(PAPERS).map(k=>`<option value="${k}">${k}</option>`).join('')}</select>`)}
+      ${F('倍率','<select id="h-scale"><option value="100">100%</option><option value="fit">用紙に合わせる</option></select>')}
+      ${cover?'':F('両面','<select id="h-dup"><option value="short">両面（短辺とじ）</option><option value="long">両面（長辺とじ）</option><option value="manual">手動で両面</option><option value="simplex">片面</option></select>')}
+    </div>
+    <div class="btns">
+      ${cover?'':'<label class="chk"><input type="checkbox" id="h-flip"> 裏面を上下反転</label><label class="chk" id="h-revw"><input type="checkbox" id="h-rev"> 裏面を逆順</label>'}
+      <label class="chk" id="h-marksw"><input type="checkbox" id="h-marks"> 断裁トンボ</label>
+    </div>
+    <div id="h-sum"></div>
+    <div class="prog" id="h-prog" hidden><div></div></div><div class="ok" id="h-msg"></div>
+    <div class="foot"><button id="h-cancel">閉じる</button><button id="h-test">テスト用紙</button><button class="primary" id="h-go">書き出し</button></div>`);
+  const set=(id,v)=>{const e=$(id);if(e){if(e.type==='checkbox')e.checked=v;else e.value=v}};
+  set('#h-mode',o.mode);set('#h-paper',o.paper);set('#h-scale',o.scale);set('#h-dup',o.duplex);set('#h-flip',o.flip);set('#h-rev',o.rev);set('#h-marks',o.marks);
+  const read=()=>{const g=(id,dflt)=>{const e=$(id);return e?(e.type==='checkbox'?e.checked:e.value):dflt};
+    Object.assign(o,{mode:cover?'single':g('#h-mode','single'),paper:g('#h-paper','auto'),scale:g('#h-scale','100'),duplex:g('#h-dup','simplex'),flip:g('#h-flip',false),rev:g('#h-rev',false),marks:g('#h-marks',false)})};
+  let P,lastMode=o.mode;
+  const upd=()=>{read();
+    if(o.mode!==lastMode&&(o.duplex==='short'||o.duplex==='long')){o.duplex=o.mode==='saddle'?'short':'long';set('#h-dup',o.duplex)}lastMode=o.mode;
+    P=hpPlan(o);
+    if($('#h-revw'))$('#h-revw').hidden=o.duplex!=='manual';
+    if($('#h-flip'))$('#h-flip').parentNode.hidden=o.duplex==='simplex';
+    const room=Math.min(P.ox,P.oy)/P.sc-Math.min(d.bleed,Math.min(P.ox,P.oy)/P.sc)>=3;$('#h-marksw').hidden=!room;
+    const auto=$('#h-paper').options[0];auto.textContent=`自動（${P.key}）`;
+    const rows=hpSettingsRows(P,o);if(P.sc!==1)rows[1][1]=`実際のサイズ（100%）・内容は${Math.round(P.sc*100)}%`;
+    const iss=hpChecks(P);
+    $('#h-sum').innerHTML=`<div class="hpt">${rows.map(([a,b])=>`<span>${a}</span><b>${esc(b)}</b>`).join('')}
+      <span>枚数</span><b>${P.sheets}枚${P.blank?`（白ページ ${P.blank}ページ追加）`:''}</b></div>
+      ${iss.length?`<div class="pf">${iss.map(x=>`<div class="pfi hp ${x.lv}"><i></i><span>${esc(x.msg)}</span></div>`).join('')}</div>`:''}
+      ${P.two?hpDiagram(P):''}`;
+  };
+  dlg.addEventListener('change',upd);upd();
+  $('#h-cancel').onclick=()=>{if(exporting){exporting='cancel';return}closeModal()};
+  const run=async test=>{
+    read();P=hpPlan(o);const base=(d.name||'無題')+(test?'_テスト用紙':'_家庭用');
+    let sides=test?P.sides.filter(x=>x.sheet===0):P.sides;if(test&&!P.cover&&!sides.some(x=>x.face===1))sides=sides.concat([{sheet:0,face:1,pages:[P.n0],rot:false}]);
+    $('#h-go').disabled=$('#h-test').disabled=true;$('#h-prog').hidden=false;exporting=true;
+    try{
+      const pages=await hpRender(P,o,sides,test,(k,t)=>{$('#h-prog').firstChild.style.width=(k/t*100)+'%';$('#h-msg').textContent=`処理中：${k} / ${t}面`});
+      if(!pages){$('#h-msg').textContent='中止しました'}
+      else if(!test&&o.duplex==='manual'&&!P.cover){
+        const fr=pages.filter((_,j)=>sides[j].face===0),bk=pages.filter((_,j)=>sides[j].face===1);if(o.rev)bk.reverse();
+        $('#h-msg').textContent='完了';await saveFile(base+'_1表面.pdf',jpegPDF(fr,'simplex'));if(bk.length)await saveFile(base+'_2裏面.pdf',jpegPDF(bk,'simplex'));
+      }else{
+        const dup=P.cover||o.duplex==='simplex'||o.duplex==='manual'?'simplex':o.duplex;
+        const blob=jpegPDF(pages,dup);$('#h-msg').textContent=`完了：${(blob.size/1048576).toFixed(1)}MB`;await saveFile(base+'.pdf',blob);
+      }
+    }catch(err){console.error(err);$('#h-msg').textContent='書き出しに失敗しました：'+(err.message||err)}
+    exporting=false;$('#h-go').disabled=$('#h-test').disabled=false;
+  };
+  $('#h-go').onclick=()=>run(false);$('#h-test').onclick=()=>run(true);
+};
+window.__thinbook_hp={hpPlan,hpChecks};
 
 /* ---------- boot ---------- */
 window.addEventListener('resize',()=>{clearTimeout(window.__rz);window.__rz=setTimeout(dirtyAll,150)});
