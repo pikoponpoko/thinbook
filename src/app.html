@@ -133,8 +133,8 @@ textarea#tText{width:100%;min-height:140px;resize:vertical;line-height:1.6}
 #pres.only .pbar,#pres.only .pside,#pres.only .ptl{display:none}
 #pres.only .pmain{grid-template-columns:minmax(0,1fr)}
 #pres.only.mv .pback{display:block}
-.dlg.wide{width:min(880px,100%)}
-.dlg.wide>*{flex-shrink:0}
+.dlg.rwide{width:min(880px,100%)}
+.dlg.rwide>*{flex-shrink:0}
 .rsum{display:flex;gap:24px;flex-wrap:wrap}.rsum>div{display:flex;flex-direction:column}.rsum span{font-size:11px;color:var(--sub)}.rsum b{font-size:20px}
 .dlg video,.dlg audio{width:100%;max-height:40vh;background:var(--stage)}
 .rchart{width:100%;display:block;cursor:pointer;border:1px solid var(--line)}
@@ -964,8 +964,8 @@ async function startPres(){
     <button id="p-back" class="pback">発表者ビュー</button>`;
   $('#p-hide').value=PR.hide;
   $('#p-tl').innerHTML=PR.budget.map((b,k)=>`<i data-k="${k}" style="flex-grow:${b}" title="${k+1}: ${fmt(b)}"></i>`).join('')+'<em id="p-mk"></em>';
-  $('#p-prev').onclick=()=>go(PR.i-1);$('#p-next').onclick=()=>go(PR.i+1);
-  $('#p-cur').onclick=()=>go(PR.i+1);
+  $('#p-prev').onclick=()=>pgo(PR.i-1);$('#p-next').onclick=()=>pgo(PR.i+1);
+  $('#p-cur').onclick=()=>pgo(PR.i+1);
   $('#p-pause').onclick=togglePause;$('#p-only').onclick=()=>setOnly(true);$('#p-back').onclick=()=>setOnly(false);
   $('#p-fs').onclick=()=>{if(document.fullscreenElement)document.exitFullscreen();else if(el.requestFullscreen)el.requestFullscreen().catch(()=>toast('全画面にできませんでした'));else toast('全画面にできませんでした')};
   $('#p-win').onclick=openAudience;$('#p-end').onclick=endPres;
@@ -981,7 +981,7 @@ async function startPres(){
   drawPres();PR.tick=setInterval(tick,200);tick();
   if(c.media!=='none')await startMedia(c.media,c.lang);
 }
-function now(){return PR.paused?PR.acc:PR.acc+(performance.now()-PR.t0)/1000}
+function pnow(){return PR.paused?PR.acc:PR.acc+(performance.now()-PR.t0)/1000}
 function drawPres(){
   if(!PR.on)return;const cur=$('#p-cur'),nx=$('#p-nextw');
   presDraw(cur.firstChild,PR.blank?-1:PR.i,cur.clientWidth,cur.clientHeight);
@@ -993,19 +993,19 @@ function drawPres(){
   drawNotes();drawAudience();
 }
 function drawNotes(){const c=presCfg(),n=$('#p-notes');n.style.fontSize=c.noteSize+'px';n.lang=c.lang;n.innerHTML=hideHTML(noteOf(PR.i),PR.hide,c.lang)}
-function go(j){
+function pgo(j){
   if(j<0||j>=S.doc.pages.length||j===PR.i)return;
-  const t=now();PR.dur[PR.i]+=t-PR.slideT;PR.slideT=t;PR.i=j;PR.marks.push([j,t]);PR.blank=false;drawPres();tick();
+  const t=pnow();PR.dur[PR.i]+=t-PR.slideT;PR.slideT=t;PR.i=j;PR.marks.push([j,t]);PR.blank=false;drawPres();tick();
 }
 function togglePause(){
   if(PR.paused){PR.t0=performance.now();PR.paused=false;if(PR.rec&&PR.rec.state==='paused')PR.rec.resume()}
-  else{PR.acc=now();PR.paused=true;if(PR.rec&&PR.rec.state==='recording')PR.rec.pause()}
+  else{PR.acc=pnow();PR.paused=true;if(PR.rec&&PR.rec.state==='recording')PR.rec.pause()}
   $('#p-pause').textContent=PR.paused?'再開':'一時停止';$('#p-pause').classList.toggle('on',PR.paused);tick();
 }
 function setOnly(v){PR.only=v;$('#pres').classList.toggle('only',v);requestAnimationFrame(drawPres)}
 function beep(f,n){const a=PR.ac;if(!a)return;for(let k=0;k<n;k++){const o=a.createOscillator(),g=a.createGain(),t=a.currentTime+k*0.3;o.frequency.value=f;g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.3,t+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t+0.22);o.connect(g).connect(a.destination);o.start(t);o.stop(t+0.25)}}
 function tick(){
-  if(!PR.on)return;const t=now(),rem=PR.target-t,sl=t-PR.slideT,c=presCfg();
+  if(!PR.on)return;const t=pnow(),rem=PR.target-t,sl=t-PR.slideT,c=presCfg();
   const r=$('#pt-rem');r.textContent=rem>=0?fmt(rem):'+'+fmt(-rem);$('#pl-rem').textContent=rem>=0?'残り':'超過';
   r.className='big'+(rem<0?' over':rem<=60?' warn':'');
   $('#pt-el').textContent=fmt(t);
@@ -1040,13 +1040,13 @@ async function startMedia(kind,lang){
   if(!PR.on){PR.stream.getTracks().forEach(t=>t.stop());return}
   PR.media=kind;
   if(kind==='video'){const v=$('#p-cam');v.srcObject=PR.stream;v.hidden=false;v.play().catch(()=>{})}
-  try{const src=PR.ac.createMediaStreamSource(PR.stream);PR.an=PR.ac.createAnalyser();PR.an.fftSize=2048;PR.buf=new Float32Array(2048);src.connect(PR.an);PR.vol=new Array(Math.floor(now()/VSTEP)).fill(-90);PR.pit=PR.vol.map(()=>0)}catch(e){}
+  try{const src=PR.ac.createMediaStreamSource(PR.stream);PR.an=PR.ac.createAnalyser();PR.an.fftSize=2048;PR.buf=new Float32Array(2048);src.connect(PR.an);PR.vol=new Array(Math.floor(pnow()/VSTEP)).fill(-90);PR.pit=PR.vol.map(()=>0)}catch(e){}
   const types=kind==='video'?['video/webm;codecs=vp9,opus','video/webm','video/mp4']:['audio/webm;codecs=opus','audio/webm','audio/mp4'];
   PR.mime=types.find(t=>window.MediaRecorder&&MediaRecorder.isTypeSupported(t))||'';
-  try{PR.rec=new MediaRecorder(PR.stream,PR.mime?{mimeType:PR.mime}:{});PR.recOffset=now();PR.rec.ondataavailable=e=>{if(e.data&&e.data.size)PR.chunks.push(e.data)};PR.rec.start(1000);if(PR.paused)PR.rec.pause();$('#pt-rec').hidden=false;$('#pt-rec').textContent=kind==='video'?'● 録画中':'● 録音中'}catch(e){PR.rec=null}
+  try{PR.rec=new MediaRecorder(PR.stream,PR.mime?{mimeType:PR.mime}:{});PR.recOffset=pnow();PR.rec.ondataavailable=e=>{if(e.data&&e.data.size)PR.chunks.push(e.data)};PR.rec.start(1000);if(PR.paused)PR.rec.pause();$('#pt-rec').hidden=false;$('#pt-rec').textContent=kind==='video'?'● 録画中':'● 録音中'}catch(e){PR.rec=null}
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(SR){const sr=new SR();sr.lang=lang==='en'?'en-US':'ja-JP';sr.continuous=true;sr.interimResults=false;
-    sr.onresult=e=>{for(let k=e.resultIndex;k<e.results.length;k++)if(e.results[k].isFinal){const tx=e.results[k][0].transcript.trim();if(tx)PR.speech.push([PR.i,Math.round(now()*10)/10,tx])}};
+    sr.onresult=e=>{for(let k=e.resultIndex;k<e.results.length;k++)if(e.results[k].isFinal){const tx=e.results[k][0].transcript.trim();if(tx)PR.speech.push([PR.i,Math.round(pnow()*10)/10,tx])}};
     sr.onend=()=>{if(PR.on&&PR.sr===sr)try{sr.start()}catch(e){}};sr.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed')PR.sr=null};
     try{sr.start();PR.sr=sr}catch(e){}}
 }
@@ -1066,7 +1066,7 @@ function stopMedia(){
   });
 }
 async function endPres(){
-  if(!PR.on)return;const t=now();PR.dur[PR.i]+=t-PR.slideT;PR.on=false;clearInterval(PR.tick);
+  if(!PR.on)return;const t=pnow();PR.dur[PR.i]+=t-PR.slideT;PR.on=false;clearInterval(PR.tick);
   if(window.speechSynthesis)speechSynthesis.cancel();
   if(PR.ro)PR.ro.disconnect();if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
   if(PR.popup&&!PR.popup.closed)PR.popup.close();PR.popup=null;
@@ -1086,8 +1086,8 @@ function presKey(e){
   const map={ArrowRight:1,ArrowDown:1,PageDown:1,' ':1,Enter:1,ArrowLeft:-1,ArrowUp:-1,PageUp:-1,Backspace:-1};
   if(e.target&&e.target.tagName==='SELECT'&&(k.startsWith('Arrow')))return;
   e.stopPropagation();
-  if(map[k]){e.preventDefault();go(PR.i+map[k]);return}
-  if(k==='Home'){e.preventDefault();go(0);return}if(k==='End'){e.preventDefault();go(S.doc.pages.length-1);return}
+  if(map[k]){e.preventDefault();pgo(PR.i+map[k]);return}
+  if(k==='Home'){e.preventDefault();pgo(0);return}if(k==='End'){e.preventDefault();pgo(S.doc.pages.length-1);return}
   const l=k.toLowerCase();
   if(l==='p'){togglePause();return}
   if(l==='b'){PR.blank=!PR.blank;drawPres();return}
@@ -1132,7 +1132,7 @@ async function showRehearsal(r){
     <div id="rdet"></div>
     ${F('振り返りメモ',`<textarea id="r-memo" rows="3">${esc(r.memo||'')}</textarea>`)}
     <div class="foot">${blob?'<button id="r-dl">録画を保存</button>':''}<button id="r-del">削除</button><span class="sp"></span><button id="r-close" class="primary">閉じる</button></div>`);
-  dlg.classList.add('wide');
+  dlg.classList.add("rwide");
   const v=$('#rv');let url=null;
   if(v&&blob){url=URL.createObjectURL(blob);v.src=url;v.addEventListener('loadedmetadata',()=>{if(v.duration===Infinity){v.currentTime=1e7;v.addEventListener('timeupdate',function f(){v.removeEventListener('timeupdate',f);v.currentTime=0})}},{once:true})}
   const seek=t=>{if(v){v.currentTime=Math.max(0,t-(r.recOffset||0));v.play().catch(()=>{})}};
