@@ -870,7 +870,7 @@ async function loadProject(p){
   await Promise.all(Object.entries(p.images||{}).map(async([id,m])=>{try{
     if(m.part){if(S.pptxZip&&S.pptxZip.get(m.part))S.images[id]={part:m.part,name:m.name,w:m.w||1,h:m.h||1,pending:true};return}
     const src=m.blob?URL.createObjectURL(m.blob):m.src;const img=await loadImg(src);S.images[id]={...m,src,img}}catch(e){}}));
-  S.doc=p.doc;S.lmap=null;S.sel=null;S.page=0;fitZoom();rebuild();renderAll();resetHistory();
+  S.doc=p.doc;S.lmap=null;migrateSlides();S.sel=null;S.page=0;fitZoom();rebuild();renderAll();resetHistory();
   if(S.pptxZip)setTimeout(loadPendingImages,0);
 }
 let dlCap=null;
@@ -2725,28 +2725,31 @@ function hexC(h){const n=parseInt(String(h).replace('#',''),16),r=(n>>16&255)/25
 function cHex(c){return cmykCss(c).match(/\d+/g).map(v=>(+v).toString(16).padStart(2,'0')).join('').toUpperCase()}
 const tx=(slot,x,y,w,h,size,o={})=>({t:'text',slot,x,y,w,h,size,...o});
 const rc=(x,y,w,h,fr='accent')=>({t:'rect',x,y,w,h,fr});
+/* 余白SMの格子に揃える。見出しは下揃え（anchor:'b'）にして、行数が変わってもアクセントの線・本文との間隔を一定に保つ */
+const HY=SM,HH=23,BAR=HY+HH+5,BY=BAR+10,BH=SH-SM-BY,CW=SW-2*SM;
+const head=(x,w,o={})=>[tx('title',x,HY,w,HH,28,{b:1,lead:130,an:'b',...o}),rc(x,BAR,18,1.6)];
 const LAYOUTS={
-  title:{name:'タイトル',base:'title',bg:'bg',items:()=>[rc(0,0,9,SH),rc(SM+8,70,26,2.4),tx('title',SM+8,80,SW-2*SM-8,38,44,{b:1,lead:120}),tx('sub',SM+8,124,SW-2*SM-8,18,18,{c:'sub',f:'body',lead:150})]},
-  section:{name:'区切り',base:'section',bg:'accent',items:()=>[tx('num',SM+8,62,120,12,24,{b:1,c:'on'}),tx('title',SM+8,80,SW-2*SM-8,38,40,{b:1,c:'on',lead:120})]},
-  content:{name:'本文',base:'content',bg:'bg',items:()=>[tx('title',SM,16,SW-2*SM,24,28,{b:1,lead:130}),rc(SM,44,18,1.6),tx('body',SM,54,SW-2*SM,SH-54-14,18,{f:'body',lead:170})]},
-  two:{name:'2段',base:'two',bg:'bg',items:()=>{const cw=(SW-2*SM-16)/2;return[tx('title',SM,16,SW-2*SM,24,28,{b:1,lead:130}),rc(SM,44,18,1.6),
-    tx('body',SM,54,cw,SH-54-14,16,{f:'body',lead:170}),rc(SM+cw+7.6,56,0.8,SH-56-18,'sub'),tx('body2',SM+cw+16,54,cw,SH-54-14,16,{f:'body',lead:170})]}},
-  image:{name:'画像',base:'image',bg:'bg',items:()=>{const iw=SW*0.46,x=iw+16,w=SW-x-SM;return[{t:'image',slot:'image',x:0,y:0,w:iw,h:SH},
-    tx('title',x,26,w,24,28,{b:1,lead:130}),rc(x,54,18,1.6),tx('body',x,64,w,SH-64-16,16,{f:'body',lead:170})]}},
-  number:{name:'数字',base:'number',bg:'bg',items:()=>[tx('num',SM,24,SW-2*SM,50,120,{b:1,c:'accent',lead:100}),tx('title',SM,96,SW-2*SM,24,28,{b:1,lead:130}),tx('body',SM,124,SW-2*SM,48,16,{c:'sub',f:'body',lead:170})]},
-  title_c:{name:'タイトル中央',base:'title',bg:'bg',items:()=>[rc(SW/2-13,62,26,2.4),tx('title',SM,72,SW-2*SM,40,44,{b:1,lead:120,align:'center'}),tx('sub',SM,120,SW-2*SM,30,18,{c:'sub',f:'body',lead:150,align:'center'})]},
-  title_b:{name:'タイトル帯',base:'title',bg:'bg',items:()=>[tx('title',SM+8,54,SW-2*SM-8,60,44,{b:1,lead:120}),rc(0,SH-52,SW,52),tx('sub',SM+8,SH-38,SW-2*SM-8,26,18,{c:'on',f:'body',lead:150})]},
-  section_l:{name:'区切り左',base:'section',bg:'bg',items:()=>{const lw=SW*0.36;return[rc(0,0,lw,SH),tx('num',SM,64,lw-2*SM,44,80,{b:1,c:'on',lead:100}),tx('title',lw+20,74,SW-lw-20-SM,48,36,{b:1,lead:125})]}},
-  content_side:{name:'見出し左',base:'content',bg:'bg',items:()=>{const lw=96;return[tx('title',SM,24,lw,SH-48,26,{b:1,lead:135}),rc(SM+lw+10,24,0.8,SH-48,'sub'),tx('body',SM+lw+22,24,SW-SM-(SM+lw+22),SH-24-16,18,{f:'body',lead:170})]}},
-  cards:{name:'カード',base:'cards',bg:'bg',items:t=>{const n=Math.max(2,Math.min(4,cardLines(t&&t.body).length||3)),cw=(SW-2*SM-(n-1)*10)/n,a=[tx('title',SM,16,SW-2*SM,24,28,{b:1,lead:130}),rc(SM,44,18,1.6)];
-    for(let i=0;i<n;i++){const x=SM+i*(cw+10);a.push(tx(null,x,62,cw,12,20,{b:1,c:'accent',txt:String(i+1).padStart(2,'0')}),rc(x,76,cw,0.8,'accent'),tx('c'+(i+1),x,82,cw,SH-82-16,n>3?14:16,{f:'body',lead:170}))}return a}},
-  image_r:{name:'画像右',base:'image',bg:'bg',items:()=>{const iw=SW*0.46,w=SW-iw-16-SM;return[{t:'image',slot:'image',x:SW-iw,y:0,w:iw,h:SH},
-    tx('title',SM,26,w,24,28,{b:1,lead:130}),rc(SM,54,18,1.6),tx('body',SM,64,w,SH-64-16,16,{f:'body',lead:170})]}},
-  image_full:{name:'全面画像',base:'image',bg:'bg',items:()=>{const pw=SW*0.56;return[{t:'image',slot:'image',x:0,y:0,w:SW,h:SH},rc(SM,SH-SM-64,pw,64,'bg'),
-    tx('title',SM+10,SH-SM-56,pw-20,22,26,{b:1,lead:130}),tx('body',SM+10,SH-SM-30,pw-20,24,14,{c:'sub',f:'body',lead:160})]}},
-  number_l:{name:'数字左',base:'number',bg:'bg',items:()=>{const lw=SW*0.44,x=SM+lw+12,w=SW-x-SM;return[tx('num',SM,58,lw,60,110,{b:1,c:'accent',lead:100}),
-    tx('title',x,56,w,24,28,{b:1,lead:130}),rc(x,84,18,1.6),tx('body',x,94,w,SH-94-16,16,{c:'sub',f:'body',lead:170})]}},
-  statement:{name:'一文',base:'content',bg:'bg',items:()=>[rc(SW/2-9,56,18,1.6),tx('title',SM+20,66,SW-2*SM-40,54,36,{b:1,lead:140,align:'center'}),tx('body',SM+20,126,SW-2*SM-40,40,16,{c:'sub',f:'body',lead:160,align:'center'})]},
+  title:{name:'タイトル',base:'title',bg:'bg',items:()=>[rc(0,0,9,SH),tx('title',SM+8,46,CW-8,48,44,{b:1,lead:120,an:'b'}),rc(SM+8,100,26,2.4),tx('sub',SM+8,110,CW-8,SH-SM-110,18,{c:'sub',f:'body',lead:150})]},
+  section:{name:'区切り',base:'section',bg:'accent',items:()=>[tx('num',SM+8,52,120,10,24,{b:1,c:'on',an:'b'}),tx('title',SM+8,68,CW-8,40,40,{b:1,c:'on',lead:120})]},
+  content:{name:'本文',base:'content',bg:'bg',items:()=>[...head(SM,CW),tx('body',SM,BY,CW,BH,18,{f:'body',lead:170})]},
+  two:{name:'2段',base:'two',bg:'bg',items:()=>{const cw=(CW-16)/2;return[...head(SM,CW),
+    tx('body',SM,BY,cw,BH,16,{f:'body',lead:170}),rc(SM+cw+7.6,BY,0.8,BH,'sub'),tx('body2',SM+cw+16,BY,cw,BH,16,{f:'body',lead:170})]}},
+  image:{name:'画像',base:'image',bg:'bg',items:()=>{const iw=SW*0.46,x=iw+SM,w=SW-x-SM;return[{t:'image',slot:'image',x:0,y:0,w:iw,h:SH},
+    ...head(x,w),tx('body',x,BY,w,BH,16,{f:'body',lead:170})]}},
+  number:{name:'数字',base:'number',bg:'bg',items:()=>[tx('num',SM,SM,CW,44,120,{b:1,c:'accent',lead:100}),tx('title',SM,SM+52,CW,HH,28,{b:1,lead:130}),tx('body',SM,SM+52+HH+6,CW,SH-SM-(SM+52+HH+6),16,{c:'sub',f:'body',lead:170})]},
+  title_c:{name:'タイトル中央',base:'title',bg:'bg',items:()=>[tx('title',SM,46,CW,48,44,{b:1,lead:120,align:'center',an:'b'}),rc(SW/2-13,100,26,2.4),tx('sub',SM,110,CW,SH-SM-110,18,{c:'sub',f:'body',lead:150,align:'center'})]},
+  title_b:{name:'タイトル帯',base:'title',bg:'bg',items:()=>[tx('title',SM+8,SM,CW-8,SH-52-SM-12,44,{b:1,lead:120,an:'b'}),rc(0,SH-52,SW,52),tx('sub',SM+8,SH-52+8,CW-8,36,18,{c:'on',f:'body',lead:150,an:'ctr'})]},
+  section_l:{name:'区切り左',base:'section',bg:'bg',items:()=>{const lw=SW*0.36,y=SH/2-18;return[rc(0,0,lw,SH),tx('num',SM,y,lw-2*SM,36,80,{b:1,c:'on',lead:100,an:'ctr'}),tx('title',lw+SM,y,SW-lw-2*SM,36,36,{b:1,lead:125,an:'ctr'})]}},
+  content_side:{name:'見出し左',base:'content',bg:'bg',items:()=>{const lw=96;return[tx('title',SM,SM,lw,SH-2*SM,26,{b:1,lead:135}),rc(SM+lw+10,SM,0.8,SH-2*SM,'sub'),tx('body',SM+lw+22,SM,SW-SM-(SM+lw+22),SH-2*SM,18,{f:'body',lead:170})]}},
+  cards:{name:'カード',base:'cards',bg:'bg',items:t=>{const n=Math.max(2,Math.min(4,cardLines(t&&t.body).length||3)),cw=(CW-(n-1)*10)/n,a=[...head(SM,CW)];
+    for(let i=0;i<n;i++){const x=SM+i*(cw+10);a.push(tx(null,x,BY,cw,8,20,{b:1,c:'accent',txt:String(i+1).padStart(2,'0')}),rc(x,BY+11,cw,0.8,'accent'),tx('c'+(i+1),x,BY+17,cw,SH-SM-(BY+17),n>3?14:16,{f:'body',lead:170}))}return a}},
+  image_r:{name:'画像右',base:'image',bg:'bg',items:()=>{const iw=SW*0.46,w=SW-iw-2*SM;return[{t:'image',slot:'image',x:SW-iw,y:0,w:iw,h:SH},
+    ...head(SM,w),tx('body',SM,BY,w,BH,16,{f:'body',lead:170})]}},
+  image_full:{name:'全面画像',base:'image',bg:'bg',items:()=>{const pw=SW*0.56,py=SH-SM-64;return[{t:'image',slot:'image',x:0,y:0,w:SW,h:SH},rc(SM,py,pw,64,'bg'),
+    tx('title',SM+10,py+10,pw-20,20,26,{b:1,lead:130}),tx('body',SM+10,py+32,pw-20,22,14,{c:'sub',f:'body',lead:160})]}},
+  number_l:{name:'数字左',base:'number',bg:'bg',items:()=>{const lw=SW*0.44,x=SM+lw+12,w=SW-x-SM;return[tx('num',SM,BY,lw,44,110,{b:1,c:'accent',lead:100}),
+    ...head(x,w),tx('body',x,BY,w,BH,16,{c:'sub',f:'body',lead:170})]}},
+  statement:{name:'一文',base:'content',bg:'bg',items:()=>[tx('title',SM+20,SM,CW-40,SH/2+8-SM,36,{b:1,lead:140,align:'center',an:'b'}),rc(SW/2-9,SH/2+14,18,1.6),tx('body',SM+20,SH/2+24,CW-40,SH/2-24-SM,16,{c:'sub',f:'body',lead:160,align:'center'})]},
 };
 const SLOTS={title:['title','sub'],section:['num','title'],content:['title','body'],two:['title','body','body2'],image:['image','title','body'],number:['num','title','body'],cards:['title','body']};
 const baseOf=k=>(LAYOUTS[k]||LAYOUTS.content).base;
@@ -2764,7 +2767,7 @@ function makeSlide(key,t={},T){
   for(const sp of L.items(t)){const g={x:r1(sp.x),y:r1(sp.y),w:r1(sp.w),h:r1(sp.h),lay:1};let it;
     if(sp.t==='rect')it=rectItem({...g,fill:null,fillRole:sp.fr});
     else if(sp.t==='image')it=imageItem({...g,slot:'image',imageId:t.image||null,fit:'cover'});
-    else{const v=sp.txt!=null?sp.txt:t[sp.slot];it=textItem({...g,...(sp.slot?{slot:sp.slot}:{}),text:v!=null&&String(v).trim()!==''?v:PH[sp.slot]||'',size:sp.size,weight:sp.b?700:400,leading:sp.lead||150,dir:'h',align:sp.align||'start',colorRole:sp.c||'ink',fontRole:sp.f||'head'})}
+    else{const v=sp.txt!=null?sp.txt:t[sp.slot];it=textItem({...g,...(sp.slot?{slot:sp.slot}:{}),text:v!=null&&String(v).trim()!==''?v:PH[sp.slot]||'',size:sp.size,weight:sp.b?700:400,leading:sp.lead||150,dir:'h',align:sp.align||'start',...(sp.an?{anchor:sp.an}:{}),colorRole:sp.c||'ink',fontRole:sp.f||'head'})}
     pg.items.push(it)}
   themePage(pg,T);return pg;
 }
@@ -2862,6 +2865,10 @@ function relayout(pg0,key,pi,T){
   if(d.pptx){delete out.bgRole}else{out.bgRole=n.bgRole;out.bg=n.bg}
   if(at.stash)out.stash=at.stash;else delete out.stash;
   return fitSlide(out,new Set(ex.map(x=>x.id)))}
+/* 余白の格子に揃える前（layVer<2）のスライドを、内容を保ったまま現在のレイアウト定義で組み直す */
+const LAYVER=2;
+function migrateSlides(){const d=S.doc;if(!d||d.kind!=='slide'||d.pptx||(d.layVer|0)>=LAYVER)return;
+  d.pages=d.pages.map((pg,i)=>LAYOUTS[pg.layout]&&pg.items.some(it=>it.lay)?relayout(pg,pg.layout,i,theme()):pg);d.layVer=LAYVER;S.lmap=null}
 function setLayout(pi,key){const d=S.doc,pg=d.pages[pi];d.pages[pi]=relayout(pg,key,pi,slideTheme(pg));S.sel=null;S.lmap=null;dirty(pi);commit();renderProps()}
 function addSlide(key){const d=S.doc;if(d.pptx){toast('PowerPointファイルではスライドを追加できません');return}const at=Math.min(S.page+1,d.pages.length);d.pages.splice(at,0,makeSlide(key));rebuild();commit();setPage(at);renderProps();
   const pe=S.pageEls[at];if(pe)pe.el.scrollIntoView({block:'center'})}
@@ -3079,7 +3086,7 @@ function openOutline(){
 $('#bOutline').onclick=openOutline;
 function createSlideDoc(th,flow){
   const d=newDoc({kind:'slide',name:'無題',w:SW,h:SH,binding:'left',color:'cmyk',pages:1});
-  d.bleed=0;d.margins={top:SM,bottom:SM,inner:SM,outer:SM};d.nombre.mode='none';d.theme=th;
+  d.bleed=0;d.margins={top:SM,bottom:SM,inner:SM,outer:SM};d.nombre.mode='none';d.theme=th;d.layVer=LAYVER;
   S.doc=d;S.images={};S.media={};S.pptxSrc=null;S.pptxZip=null;S.sel=null;S.page=0;
   d.pages=parseOutline(FLOWS[flow]||'タイトル').map(({key,t})=>makeSlide(key,t));
   fitZoom();rebuild();renderAll();resetHistory();
