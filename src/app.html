@@ -388,6 +388,7 @@ textarea.outline{width:100%;min-height:260px;resize:vertical;line-height:1.6;fon
 textarea#pNotes{width:100%;min-height:100px;resize:vertical;line-height:1.6}
 #app:not(.k-slide) .tabs .sl-only{display:none}
 #tab-notes #pNotes{min-height:min(50vh,420px)}
+@media (max-width:820px){#tab-notes #pNotes{min-height:26dvh}}
 .kinds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
 .kinds button.on{background:var(--bg);color:var(--ink);border-color:var(--accent);outline:1px solid var(--accent)}
 @media (max-width:820px){
@@ -1332,8 +1333,9 @@ function closeModal(){$('#modal').hidden=true;$('#modal').innerHTML=''}
 $('#modal').addEventListener('pointerdown',e=>{if(e.target.id==='modal'&&!exporting)closeModal()});
 $('#bNew').onclick=()=>{
   const dlg=modal(`<h2>新規書類</h2>
+    <div class="kinds" id="n-kinds"><button data-k="body" class="on">本文</button><button data-k="cover">表紙</button><button data-k="slide">スライド 16:9</button></div>
     <span class="n-book">${F('印刷所',`<select id="n-pr">${Object.entries(PRINTERS).map(([k,v])=>`<option value="${k}"${k===(S.doc&&S.doc.printer)?' selected':''}>${esc(v.name)}</option>`).join('')}</select>`)}</span>
-    <div class="kinds" id="n-kinds"><button data-k="body" class="on">本文</button><button data-k="cover">表紙</button><button data-k="slide">スライド 16:9</button></div><select id="n-kind" hidden><option value="body">本文</option><option value="cover">表紙（表1・背・表4）</option><option value="slide">スライド（16:9）</option></select>
+    <select id="n-kind" hidden><option value="body">本文</option><option value="cover">表紙（表1・背・表4）</option><option value="slide">スライド（16:9）</option></select>
     <div class="row">
     <span class="n-book">${F('仕上がりサイズ',`<select id="n-size">${Object.keys(SIZES).map(k=>`<option${k==='A5'?' selected':''}>${k}</option>`).join('')}<option value="custom">カスタム（変形）</option></select>`)}</span>
     <span class="n-book">${F('向き','<select id="n-ori"><option value="p">縦長</option><option value="l">横長</option></select>')}</span>
