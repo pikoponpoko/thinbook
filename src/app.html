@@ -727,6 +727,7 @@ function drawPage(ctx,i,o){
   const d=S.doc,b=d.bleed,W=pw(d),H=d.trimH,pg=d.pages[i];
   ctx.fillStyle=pg.bg?col(pg.bg,o.ch):'#ffffff';ctx.fillRect(-b,-b,W+2*b,H+2*b);
   ctx.save();ctx.beginPath();ctx.rect(-b,-b,W+2*b,H+2*b);ctx.clip();
+  if(pg.under)for(const it of pg.under)drawItem(ctx,it,o.ch,false);
   for(const it of pg.items)drawItem(ctx,it,o.ch,o.preview);
   drawNombre(ctx,i,o.ch);
   ctx.restore();
@@ -842,15 +843,26 @@ function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('thinbook',
 async function kvSet(k,v){try{const db=await idb();await new Promise((res,rej)=>{const t=db.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=res;t.onerror=()=>rej(t.error)})}catch(e){}}
 async function kvGet(k){try{const db=await idb();return await new Promise((res,rej)=>{const t=db.transaction('kv','readonly');const r=t.objectStore('kv').get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}catch(e){return null}}
 function projectData(file){const used=new Set(),mu=new Set();S.doc.pages.forEach(p=>p.items.forEach(it=>{if(it.imageId)used.add(it.imageId);if(it.posterId)used.add(it.posterId);if(it.mediaId)mu.add(it.mediaId)}));
-  const images={};for(const id of used){const im=S.images[id];if(im)images[id]={src:im.src,w:im.w,h:im.h,name:im.name||''}}
-  const o={app:'thinbook',version:1,doc:S.doc,images};if(S.doc.pptx&&S.pptxSrc)o.pptxSrc=file?u8b64(S.pptxSrc):S.pptxSrc;
-  o.media={};for(const id of mu){const m=S.media[id];if(m)o.media[id]={blob:m.blob,name:m.name,type:m.type}}return o}
+  if(S.doc.pptx)S.doc.pages.forEach(p=>(p.under||[]).forEach(it=>{if(it.imageId)used.add(it.imageId)}));
+  const fromPptx=!!(S.doc.pptx&&!file);
+  const images={};for(const id of used){const im=S.images[id];if(!im)continue;
+    if(fromPptx&&im.part)images[id]={part:im.part,w:im.w,h:im.h,name:im.name||''};
+    else images[id]=im.blob?{blob:im.blob,w:im.w,h:im.h,name:im.name||''}:{src:im.src,w:im.w,h:im.h,name:im.name||''}}
+  const o={app:'thinbook',version:1,doc:S.doc,images};if(S.doc.pptx&&S.pptxSrc&&file)o.pptxSrc=u8b64(S.pptxSrc);
+  o.media={};for(const id of mu){const m=S.media[id];if(!m)continue;o.media[id]=fromPptx&&m.part?{part:m.part,name:m.name,type:m.type}:{blob:m.blob,name:m.name,type:m.type}}return o}
 function autosave(){kvSet('project',projectData())}
 async function loadProject(p){
   if(!p||!['thinbook','kumi'].includes(p.app)||!p.doc)throw new Error('Thinbookのプロジェクトファイルではありません');
   S.media={};for(const [id,m] of Object.entries(p.media||{})){const blob=m.blob||(m.data?new Blob([b64u8(m.data)],{type:m.type}):null);if(blob)S.media[id]={blob,name:m.name,type:m.type}}
   S.images={};S.pptxSrc=p.pptxSrc?(typeof p.pptxSrc==='string'?b64u8(p.pptxSrc):new Uint8Array(p.pptxSrc)):null;
-  await Promise.all(Object.entries(p.images||{}).map(([id,m])=>new Promise(res=>{const img=new Image();img.onload=()=>{S.images[id]={...m,img};res()};img.onerror=res;img.src=m.src})));
+  if(!S.pptxSrc&&p.doc.pptx){const r=await kvGet('pptxsrc');if(r&&r.blob&&r.key===p.doc.pptx.key)S.pptxSrc=new Uint8Array(await r.blob.arrayBuffer())}
+  const zmap=S.pptxSrc&&p.doc.pptx?new Map(PZ.read(S.pptxSrc).map(e=>[e.name,e])):null;
+  const fromPart=async(part,type)=>{const e=zmap&&zmap.get(part);return e?new Blob([await PZ.data(e)],{type}):null};
+  for(const [id,m] of Object.entries(S.media)){const pm=(p.media||{})[id];if(!m.blob&&pm&&pm.part){const b=await fromPart(pm.part,pm.type);if(b)S.media[id]={blob:b,name:pm.name,type:pm.type,part:pm.part}}}
+  for(const [id,m] of Object.entries(p.media||{}))if(m.part&&!S.media[id]){const b=await fromPart(m.part,m.type);if(b)S.media[id]={blob:b,name:m.name,type:m.type,part:m.part}}
+  await Promise.all(Object.entries(p.images||{}).map(async([id,m])=>{try{
+    if(m.part){const ext=m.part.split('.').pop().toLowerCase(),b=await fromPart(m.part,'image/'+({jpg:'jpeg',svg:'svg+xml'}[ext]||ext));if(b){const im=await proxyImage(b,m.name);im.part=m.part;S.images[id]=im}return}
+    const src=m.blob?URL.createObjectURL(m.blob):m.src;const img=await loadImg(src);S.images[id]={...m,src,img}}catch(e){}}));
   S.doc=p.doc;S.lmap=null;S.sel=null;S.page=0;fitZoom();rebuild();renderAll();resetHistory();
 }
 let dlCap=null;
@@ -1333,7 +1345,9 @@ $('#bNew').onclick=()=>{
 };
 $('#bOpen').onclick=()=>$('#fOpen').click();
 $('#fOpen').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;if(/\.xlsx$/i.test(f.name)){XL.openFile(f);return}try{if(/\.pptx$/i.test(f.name))await importPPTX(f);else await loadProject(JSON.parse(await f.text()));toast('開きました：'+f.name)}catch(err){toast(err.message||'開けませんでした')}});
-async function saveProject(){const pd=projectData(true);for(const m of Object.values(pd.media)){m.data=u8b64(new Uint8Array(await m.blob.arrayBuffer()));delete m.blob}const j=JSON.stringify(pd);saveFile((S.doc.name||'無題')+'.thinbook.json',new Blob([j],{type:'application/json'}))}
+async function saveProject(){if(S.doc.pptx&&S.pptxSrc){try{toast('保存中…');await saveFile(S.doc.pptx.name,await exportPPTX())}catch(e){toast('保存できませんでした：'+(e.message||e))}return}
+  const pd=projectData(true);for(const m of Object.values(pd.media)){m.data=u8b64(new Uint8Array(await m.blob.arrayBuffer()));delete m.blob}
+  for(const m of Object.values(pd.images))if(m.blob){m.src=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(m.blob)});delete m.blob}const j=JSON.stringify(pd);saveFile((S.doc.name||'無題')+'.thinbook.json',new Blob([j],{type:'application/json'}))}
 $('#bSave').onclick=saveProject;
 
 /* ---------- Dropbox backup ---------- */
@@ -2928,7 +2942,7 @@ const PZ=(()=>{
       if(dv.getUint32(p,true)!==0x02014b50)throw new Error('ファイルが壊れています');
       const method=dv.getUint16(p+10,true),crc=dv.getUint32(p+16,true),csize=dv.getUint32(p+20,true),usize=dv.getUint32(p+24,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
       const name=td.decode(u8.subarray(p+46,p+46+nl));const ds=lo+30+dv.getUint16(lo+26,true)+dv.getUint16(lo+28,true);
-      out.push({name,method,crc,csize,usize,raw:u8.subarray(ds,ds+csize)});p+=46+nl+xl+cl;
+      if(csize===0xffffffff||lo===0xffffffff)throw new Error('4GBを超えるファイルには対応していません');out.push({name,method,crc,csize,usize,off:ds,raw:u8.subarray(ds,ds+csize)});p+=46+nl+xl+cl;
     }
     return out;
   }
@@ -3011,6 +3025,7 @@ function b64u8(s){const bin=atob(s),u=new Uint8Array(bin.length);for(let i=0;i<b
 function u8b64(u){let s='';for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)}
 async function imageBytes(id){
   const im=S.images[id],m=/^data:image\/(png|jpeg);base64,(.*)$/.exec(im.src||'');
+  if(im.blob&&/^image\/(png|jpeg)$/.test(im.blob.type))return{ext:im.blob.type.slice(6),u8:new Uint8Array(await im.blob.arrayBuffer())};
   if(m)return{ext:m[1],u8:b64u8(m[2])};
   const c=document.createElement('canvas');c.width=im.w;c.height=im.h;c.getContext('2d').drawImage(im.img,0,0);
   const b=await new Promise(r=>c.toBlob(r,'image/png'));return{ext:'png',u8:new Uint8Array(await b.arrayBuffer())};
@@ -3102,92 +3117,161 @@ function hsl(hex,mods){
   let R,G,B;if(s===0)R=G=B=l;else{const q=l<.5?l*(1+s):l+s-l*s,p=2*l-q;R=f(p,q,h+1/3);G=f(p,q,h);B=f(p,q,h-1/3)}
   return [R,G,B].map(v=>Math.round(v*255).toString(16).padStart(2,'0')).join('');
 }
+const PROXY_PX=4e6;
+async function proxyImage(blob,name){
+  let bm;try{bm=await createImageBitmap(blob)}catch(e){const im=await readImage(new File([blob],name,{type:blob.type}));return im}
+  let w=bm.width,h=bm.height;const k=w*h>PROXY_PX?Math.sqrt(PROXY_PX/(w*h)):1;
+  let out=blob;
+  if(k<1||!/^image\/(png|jpeg)$/.test(blob.type)){w=Math.max(1,Math.round(w*k));h=Math.max(1,Math.round(h*k));const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(bm,0,0,w,h);
+    out=await new Promise(r=>c.toBlob(r,blob.type==='image/jpeg'?'image/jpeg':'image/png',0.9))}
+  bm.close&&bm.close();
+  const src=URL.createObjectURL(out),img=await loadImg(src);
+  return{src,blob:out,w,h,img,name};
+}
+function pptxProgress(msg,k,t){let m=$('#imp-msg');if(!m){modal(`<h2>読み込み中</h2><div class="prog"><div></div></div><div class="ok" id="imp-msg"></div>`);m=$('#imp-msg')}
+  m.textContent=msg;const b=$('#modal .prog>div');if(b)b.style.width=(t?k/t*100:0)+'%'}
 async function importPPTX(file){
-  const u8=new Uint8Array(await file.arrayBuffer()),ents=PZ.read(u8),map=new Map(ents.map(e=>[e.name,e])),td=new TextDecoder(),cache=new Map();
+  pptxProgress('ファイルを読み込んでいます',0,1);
+  try{await importPPTXInner(file)}finally{if($('#imp-msg'))closeModal()}
+}
+async function importPPTXInner(file){
+  const u8=new Uint8Array(await file.arrayBuffer()),ents=PZ.read(u8),map=new Map(ents.map(e=>[e.name,e])),td=new TextDecoder(),cache=new Map(),relCache=new Map();
+  const blobOf=(e,type)=>e.method===0?file.slice(e.off,e.off+e.csize,type):PZ.data(e).then(d=>new Blob([d],{type}));
   const xml=async n=>{if(cache.has(n))return cache.get(n);const e=map.get(n);const x=e?new DOMParser().parseFromString(td.decode(await PZ.data(e)),'application/xml'):null;cache.set(n,x);return x};
-  const rels=async part=>{const x=await xml(relsPath(part)),o={};if(x)for(const r of x.getElementsByTagName('Relationship'))o[r.getAttribute('Id')]={type:r.getAttribute('Type')||'',target:r.getAttribute('TargetMode')==='External'?null:partResolve(part,r.getAttribute('Target'))};return o};
+  const rels=async part=>{if(relCache.has(part))return relCache.get(part);const x=await xml(relsPath(part)),o={};if(x)for(const r of x.getElementsByTagName('Relationship'))o[r.getAttribute('Id')]={type:r.getAttribute('Type')||'',target:r.getAttribute('TargetMode')==='External'?null:partResolve(part,r.getAttribute('Target'))};relCache.set(part,o);return o};
   const relOf=(rs,suffix)=>Object.values(rs).find(r=>r.type.endsWith('/'+suffix)&&r.target);
   const pres=await xml('ppt/presentation.xml');if(!pres)throw new Error('PowerPointファイルではありません');
   const prel=await rels('ppt/presentation.xml');
-  const sz=pres.getElementsByTagNameNS(NP,'sldSz')[0],cx=+sz.getAttribute('cx'),cy=+sz.getAttribute('cy');
-  const parts=[...pres.getElementsByTagNameNS(NP,'sldId')].map(e=>(prel[e.getAttributeNS(NR,'id')]||{}).target).filter(Boolean);
+  const sz=pres.getElementsByTagNameNS(NP,'sldSz')[0],cx=sz?+sz.getAttribute('cx'):12192000,cy=sz?+sz.getAttribute('cy'):6858000;
+  const parts=[...pres.getElementsByTagNameNS(NP,'sldId')].map(e=>({part:(prel[e.getAttributeNS(NR,'id')]||{}).target,hidden:e.getAttribute('show')==='0'})).filter(x=>x.part);
+  const key=file.name+'|'+file.size+'|'+file.lastModified;
   const d=newDoc({kind:'slide',name:file.name.replace(/\.pptx$/i,''),w:cx/EMU,h:cy/EMU,binding:'left',color:'cmyk',pages:1});
-  d.bleed=0;d.margins={top:SM,bottom:SM,inner:SM,outer:SM};d.nombre.mode='none';d.pptx={name:file.name};d.pages=[];
-  const images={},mediaIds=new Map(),vmedia={},vIds=new Map();
-  for(const part of parts){
-    const sx=await xml(part);if(!sx)continue;const srel=await rels(part);
-    const lpart=(relOf(srel,'slideLayout')||{}).target,lx=lpart&&await xml(lpart),lrel=lpart?await rels(lpart):{};
+  d.bleed=0;d.margins={top:SM,bottom:SM,inner:SM,outer:SM};d.nombre.mode='none';d.pptx={name:file.name,key};d.pages=[];
+  const images={},imgIds=new Map(),vmedia={},vIds=new Map(),underCache=new Map(),errors=[];
+  const IMG=/\.(png|jpe?g|gif|bmp|webp|svg)$/i;
+  const loadMedia=async target=>{if(imgIds.has(target))return imgIds.get(target);let id=null;
+    try{const ext=target.split('.').pop().toLowerCase(),mime='image/'+({jpg:'jpeg',svg:'svg+xml'}[ext]||ext);
+      const im=await proxyImage(await blobOf(map.get(target),mime),target.split('/').pop());im.part=target;id=uid();images[id]=im}catch(e){}
+    imgIds.set(target,id);return id};
+  // theme + colour helpers per master
+  const ctxOf=async(lpart)=>{
+    const lx=lpart&&await xml(lpart),lrel=lpart?await rels(lpart):{};
     const mpart=(relOf(lrel,'slideMaster')||{}).target,mx=mpart&&await xml(mpart),mrel=mpart?await rels(mpart):{};
     const tpart=(relOf(mrel,'theme')||{}).target,tx_=tpart&&await xml(tpart);
     const scheme={},fonts={mj:'',mn:''};
-    if(tx_){const cs=tx_.getElementsByTagNameNS(NA,'clrScheme')[0];if(cs)for(const c of cs.children){const v=c.firstElementChild;if(v)scheme[c.localName]=v.getAttribute('val')&&v.localName==='srgbClr'?v.getAttribute('val'):(v.getAttribute('lastClr')||'000000')}
+    if(tx_){const cs=tx_.getElementsByTagNameNS(NA,'clrScheme')[0];if(cs)for(const c of cs.children){const v=c.firstElementChild;if(v)scheme[c.localName]=v.localName==='srgbClr'?v.getAttribute('val'):(v.getAttribute('lastClr')||'000000')}
       for(const [k,tag] of [['mj','majorFont'],['mn','minorFont']]){const f=tx_.getElementsByTagNameNS(NA,tag)[0];if(f){const ea=kid(f,'ea'),la=kid(f,'latin');fonts[k]=(ea&&ea.getAttribute('typeface'))||(la&&la.getAttribute('typeface'))||''}}}
     const cmEl=mx&&mx.getElementsByTagNameNS(NP,'clrMap')[0],cmap={};if(cmEl)for(const a of cmEl.attributes)cmap[a.name]=a.value;
-    const color=fill=>{if(!fill)return null;const v=fill.firstElementChild;if(!v)return null;let hex=null;
-      if(v.localName==='srgbClr')hex=v.getAttribute('val');else if(v.localName==='sysClr')hex=v.getAttribute('lastClr');
-      else if(v.localName==='schemeClr'){let n=v.getAttribute('val');n=cmap[n]||{bg1:'lt1',tx1:'dk1',bg2:'lt2',tx2:'dk2'}[n]||n;hex=scheme[n]}
-      else if(v.localName==='prstClr')hex={black:'000000',white:'FFFFFF'}[v.getAttribute('val')]||'000000';
-      if(!hex)return null;if(v.children.length)hex=hsl(hex,[...v.children]);return hexC('#'+hex)};
-    const bgOf=x=>{const bg=x&&x.getElementsByTagNameNS(NP,'bg')[0];if(!bg)return null;const pr=kid(bg,'bgPr',NP);if(pr)return color(kid(pr,'solidFill'));const ref=kid(bg,'bgRef',NP);return ref?color(ref):null};
-    const pg={id:uid(),items:[],noNombre:true,part,bg:bgOf(sx)||bgOf(lx)||bgOf(mx)||null,srcIds:[]};
-    const npart=(relOf(srel,'notesSlide')||{}).target,nx=npart&&await xml(npart);
-    if(nx)for(const sp of nx.getElementsByTagNameNS(NP,'sp')){const ph=sp.getElementsByTagNameNS(NP,'ph')[0];if(!ph||(ph.getAttribute('type')||'body')!=='body')continue;
-      pg.notes=[...sp.getElementsByTagNameNS(NA,'p')].map(p=>[...p.getElementsByTagNameNS(NA,'t')].map(t=>t.textContent).join('')).join('\n').trim();pg.notesOrig=pg.notes;break}
-    const phOf=sp=>{const nv=sp.firstElementChild,pr=nv&&kid(nv,'nvPr',NP),ph=pr&&kid(pr,'ph',NP);return ph?{type:ph.getAttribute('type')||'body',idx:ph.getAttribute('idx')}:null};
-    const findPh=(x,ph)=>{if(!x)return null;let byType=null;for(const sp of x.getElementsByTagNameNS(NP,'sp')){const p=phOf(sp);if(!p)continue;if(ph.idx!=null&&p.idx===ph.idx)return sp;if(!byType&&p.type===ph.type)byType=sp}return byType};
-    const xfOf=sp=>{const pr=kid(sp,'spPr',NP)||kid(sp,'grpSpPr',NP),xf=pr&&kid(pr,'xfrm');if(!xf)return null;const o=kid(xf,'off'),e=kid(xf,'ext');if(!o||!e)return null;
-      return{x:+o.getAttribute('x'),y:+o.getAttribute('y'),w:+e.getAttribute('cx'),h:+e.getAttribute('cy'),flat:xf}};
-    const walk=async(tree,tf,inGrp)=>{
-      for(const el of tree.children){const ln=el.localName;
-        if(ln==='grpSp'){const g=xfOf(el);if(!g)continue;const co=kid(g.flat,'chOff'),ce=kid(g.flat,'chExt');
-          const ox=co?+co.getAttribute('x'):0,oy=co?+co.getAttribute('y'):0,ew=ce&&+ce.getAttribute('cx')||g.w,eh=ce&&+ce.getAttribute('cy')||g.h,kx=g.w/ew,ky=g.h/eh;
-          await walk(el,(x,y,w,h)=>tf(g.x+(x-ox)*kx,g.y+(y-oy)*ky,w*kx,h*ky),true);continue}
-        if(ln!=='sp'&&ln!=='pic')continue;
-        const nv=el.firstElementChild,c=nv&&kid(nv,'cNvPr',NP);if(!c)continue;const id=c.getAttribute('id');pg.srcIds.push(id);
-        const ph=phOf(el);let g=xfOf(el),inh=false;
-        if(!g&&ph){const s1=findPh(lx,ph),s2=findPh(mx,ph);g=(s1&&xfOf(s1))||(s2&&xfOf(s2));inh=true}
-        if(!g)continue;const box=tf(g.x,g.y,g.w,g.h);const src={id,grp:inGrp,inh};
-        if(ln==='pic'){const blip=el.getElementsByTagNameNS(NA,'blip')[0],r=blip&&srel[blip.getAttributeNS(NR,'embed')];let imageId=null;
-          if(r&&r.target&&map.get(r.target)&&/\.(png|jpe?g|gif|bmp|webp|svg)$/i.test(r.target)){imageId=mediaIds.get(r.target);
-            if(!imageId){try{const ext=r.target.split('.').pop().toLowerCase(),mime={jpg:'jpeg',svg:'svg+xml'}[ext]||ext;
-              const im=await readImage(new File([await PZ.data(map.get(r.target))],r.target.split('/').pop(),{type:'image/'+mime}));imageId=uid();images[imageId]=im;mediaIds.set(r.target,imageId)}catch(e){}}}
-          const nvPr=kid(el.firstElementChild,'nvPr',NP),vf=nvPr&&kid(nvPr,'videoFile'),pm=el.getElementsByTagNameNS(P14,'media')[0];
-          const vr=(pm&&srel[pm.getAttributeNS(NR,'embed')])||(vf&&srel[vf.getAttributeNS(NR,'link')]);
-          if(vr&&vr.target&&map.get(vr.target)){let mid=vIds.get(vr.target);
-            if(!mid){const e=vr.target.split('.').pop().toLowerCase(),nm=vr.target.split('/').pop();mid=uid();vmedia[mid]={blob:new Blob([await PZ.data(map.get(vr.target))],{type:VMIME[e]||'video/mp4'}),name:nm,type:VMIME[e]||'video/mp4'};vIds.set(vr.target,mid)}
-            pg.items.push(videoItem({...box,mediaId:mid,posterId:imageId,fit:'stretch',src:{...src,kind:'pic',o:{...box,imageId:mid}}}));continue}
-          pg.items.push(imageItem({...box,imageId,fit:'stretch',src:{...src,kind:'pic',o:{...box,imageId}}}));continue}
-        const spPr=kid(el,'spPr',NP),fl=color(kid(spPr,'solidFill')),lnEl=kid(spPr,'ln'),st=lnEl&&color(kid(lnEl,'solidFill'));
-        const tb=kid(el,'txBody',NP),paras=kids(tb,'p');
-        const text=paras.map(p=>[...p.children].map(r=>r.localName==='br'?'\n':(r.localName==='r'||r.localName==='fld')?(kid(r,'t')||{}).textContent||'':'').join('')).join('\n');
-        if(fl||st)pg.items.push(rectItem({...box,fill:fl,stroke:st,sw:lnEl&&lnEl.getAttribute('w')?+lnEl.getAttribute('w')/EMU:0.3,src:{...src,kind:'fill',hasText:!!text.trim(),o:{...box}}}));
-        if(!text.trim())continue;
-        const bp=kid(tb,'bodyPr'),A=(n,def)=>bp&&bp.getAttribute(n)!=null?+bp.getAttribute(n)/EMU:def;
-        const ins={l:A('lIns',2.54),t:A('tIns',1.27),r:A('rIns',2.54),b:A('bIns',1.27)};
-        const vert=bp&&/^(eaVert|vert|wordArtVert|mongolianVert)$/.test(bp.getAttribute('vert')||'');
-        const af=bp&&kid(bp,'normAutofit'),scale=af&&af.getAttribute('fontScale')?+af.getAttribute('fontScale')/100000:1;
-        const rPr=tb.getElementsByTagNameNS(NA,'rPr')[0]||tb.getElementsByTagNameNS(NA,'endParaRPr')[0];
-        const isTitle=ph&&/^(title|ctrTitle)$/.test(ph.type);
-        let size=rPr&&rPr.getAttribute('sz')?+rPr.getAttribute('sz')/100:isTitle?40:ph?24:18;size=Math.round(size*scale*10)/10;
-        const tf_=rPr&&(kid(rPr,'ea')||kid(rPr,'latin'));let font=tf_&&tf_.getAttribute('typeface')||'';
-        if(!font||font.startsWith('+'))font=(font.startsWith('+mj')||(!font&&isTitle)?fonts.mj:fonts.mn)||'Noto Sans JP';
-        const col=(rPr&&color(kid(rPr,'solidFill')))||hexC('#'+(scheme[cmap.tx1||'dk1']||'000000'));
-        const pPr=paras[0]&&kid(paras[0],'pPr'),al=pPr&&pPr.getAttribute('algn');
-        const lsp=pPr&&kid(pPr,'lnSpc'),pct=lsp&&kid(lsp,'spcPct'),pts=lsp&&kid(lsp,'spcPts');
-        const leading=pct?Math.round(+pct.getAttribute('val')/1000*1.2):pts?Math.round(+pts.getAttribute('val')/size):120;
-        const anchor=(bp&&bp.getAttribute('anchor'))||(isTitle&&ph.type!=='ctrTitle'?'ctr':'t');
-        const it=textItem({x:box.x+ins.l,y:box.y+ins.t,w:Math.max(1,box.w-ins.l-ins.r),h:Math.max(1,box.h-ins.t-ins.b),text,font,size,weight:rPr&&rPr.getAttribute('b')==='1'?700:400,
-          leading:clamp(leading,80,400),dir:vert?'v':'h',align:al==='ctr'?'center':al==='r'?'end':'start',anchor:anchor==='ctr'?'ctr':anchor==='b'?'b':'t',color:col});
-        it.src={...src,kind:'text',ins,scale,o:{x:it.x,y:it.y,w:it.w,h:it.h,text,size,weight:it.weight,color:cHex(col),font}};
-        pg.items.push(it);
-      }
-    };
-    const tree=sx.getElementsByTagNameNS(NP,'spTree')[0];
-    if(tree)await walk(tree,(x,y,w,h)=>({x:r1(x/EMU),y:r1(y/EMU),w:r1(w/EMU),h:r1(h/EMU)}),false);
-    d.pages.push(pg);
+    return{lpart,lx,lrel,mpart,mx,mrel,scheme,fonts,cmap};
+  };
+  const color=(C,fill)=>{if(!fill)return null;const v=fill.firstElementChild;if(!v)return null;let hex=null;
+    if(v.localName==='srgbClr')hex=v.getAttribute('val');else if(v.localName==='sysClr')hex=v.getAttribute('lastClr');
+    else if(v.localName==='schemeClr'){let n=v.getAttribute('val');n=C.cmap[n]||{bg1:'lt1',tx1:'dk1',bg2:'lt2',tx2:'dk2'}[n]||n;hex=C.scheme[n]}
+    else if(v.localName==='prstClr')hex={black:'000000',white:'FFFFFF'}[v.getAttribute('val')]||'000000';
+    if(!hex||hex.length!==6)return null;if(v.children.length)hex=hsl(hex,[...v.children]);return hexC('#'+hex)};
+  const bgOf=async(C,x,part,rs)=>{const bg=x&&x.getElementsByTagNameNS(NP,'bg')[0];if(!bg)return null;const pr=kid(bg,'bgPr',NP);
+    if(pr){const bf=kid(pr,'blipFill');if(bf){const bl=kid(bf,'blip'),r=bl&&rs[bl.getAttributeNS(NR,'embed')];if(r&&r.target&&map.get(r.target)&&IMG.test(r.target)){const id=await loadMedia(r.target);if(id)return{img:id}}}
+      return{color:color(C,kid(pr,'solidFill'))}}
+    const ref=kid(bg,'bgRef',NP);return ref?{color:color(C,ref)}:null};
+  const phOf=sp=>{const nv=sp.firstElementChild,pr=nv&&kid(nv,'nvPr',NP),ph=pr&&kid(pr,'ph',NP);return ph?{type:ph.getAttribute('type')||'body',idx:ph.getAttribute('idx')}:null};
+  const findPh=(x,ph)=>{if(!x)return null;let byType=null;for(const sp of x.getElementsByTagNameNS(NP,'sp')){const p=phOf(sp);if(!p)continue;if(ph.idx!=null&&p.idx===ph.idx)return sp;if(!byType&&p.type===ph.type)byType=sp}return byType};
+  const xfOf=sp=>{const pr=kid(sp,'spPr',NP)||kid(sp,'grpSpPr',NP),xf=pr&&kid(pr,'xfrm');if(!xf)return null;const o=kid(xf,'off'),e=kid(xf,'ext');if(!o||!e)return null;
+    return{x:+o.getAttribute('x'),y:+o.getAttribute('y'),w:+e.getAttribute('cx'),h:+e.getAttribute('cy'),flat:xf}};
+  const TF0=(x,y,w,h)=>({x:r1(x/EMU),y:r1(y/EMU),w:r1(w/EMU),h:r1(h/EMU)});
+  // W = {C, rels, out, ids|null(locked)}
+  const walk=async(W,tree,tf,inGrp)=>{
+    const {C}=W;
+    for(const el of tree.children){const ln=el.localName;
+      try{
+      if(ln==='grpSp'){const g=xfOf(el);if(!g)continue;const co=kid(g.flat,'chOff'),ce=kid(g.flat,'chExt');
+        const ox=co?+co.getAttribute('x'):0,oy=co?+co.getAttribute('y'):0,ew=ce&&+ce.getAttribute('cx')||g.w,eh=ce&&+ce.getAttribute('cy')||g.h,kx=g.w/ew,ky=g.h/eh;
+        await walk(W,el,(x,y,w,h)=>tf(g.x+(x-ox)*kx,g.y+(y-oy)*ky,w*kx,h*ky),true);continue}
+      if(ln!=='sp'&&ln!=='pic')continue;
+      const nv=el.firstElementChild,c=nv&&kid(nv,'cNvPr',NP);if(!c)continue;const id=c.getAttribute('id');
+      const ph=phOf(el);
+      if(!W.ids&&ph)continue;
+      if(W.ids)W.ids.push(id);
+      let g=xfOf(el),inh=false;
+      if(!g&&ph){const s1=findPh(C.lx,ph),s2=findPh(C.mx,ph);g=(s1&&xfOf(s1))||(s2&&xfOf(s2));inh=true}
+      if(!g)continue;const box=tf(g.x,g.y,g.w,g.h);const src=W.ids?{id,grp:inGrp,inh}:null;
+      const tag=(it,s)=>{if(src)it.src={...src,...s};return it};
+      if(ln==='pic'){const blip=el.getElementsByTagNameNS(NA,'blip')[0],r=blip&&W.rels[blip.getAttributeNS(NR,'embed')];let imageId=null;
+        if(r&&r.target&&map.get(r.target)&&IMG.test(r.target))imageId=await loadMedia(r.target);
+        const nvPr=kid(nv,'nvPr',NP),vf=nvPr&&kid(nvPr,'videoFile'),pm=el.getElementsByTagNameNS(P14,'media')[0];
+        const vr=(pm&&W.rels[pm.getAttributeNS(NR,'embed')])||(vf&&W.rels[vf.getAttributeNS(NR,'link')]);
+        if(W.ids&&vr&&vr.target&&map.get(vr.target)){let mid=vIds.get(vr.target);
+          if(!mid){const e=vr.target.split('.').pop().toLowerCase(),nm=vr.target.split('/').pop(),type=VMIME[e]||'video/mp4';mid=uid();vmedia[mid]={blob:await blobOf(map.get(vr.target),type),name:nm,type,part:vr.target};vIds.set(vr.target,mid)}
+          W.out.push(tag(videoItem({...box,mediaId:mid,posterId:imageId,fit:'stretch'}),{kind:'pic',o:{...box,imageId:mid}}));continue}
+        W.out.push(tag(imageItem({...box,imageId,fit:'stretch'}),{kind:'pic',o:{...box,imageId}}));continue}
+      const spPr=kid(el,'spPr',NP);let fl=color(C,kid(spPr,'solidFill'));const lnEl=kid(spPr,'ln'),st=lnEl&&!kid(lnEl,'noFill')?color(C,kid(lnEl,'solidFill')):null;
+      if(!fl&&!kid(spPr,'noFill')){const sty=kid(el,'style',NP),fr=sty&&kid(sty,'fillRef');if(fr&&fr.getAttribute('idx')!=='0')fl=color(C,fr)}
+      const bf=kid(spPr,'blipFill');
+      if(bf){const bl=kid(bf,'blip'),r=bl&&W.rels[bl.getAttributeNS(NR,'embed')];if(r&&r.target&&map.get(r.target)&&IMG.test(r.target)){const imageId=await loadMedia(r.target);if(imageId)W.out.push(tag(imageItem({...box,imageId,fit:'stretch'}),{kind:'fill',hasText:true,o:{...box}}))}}
+      const tb=kid(el,'txBody',NP),paras=kids(tb,'p');
+      const text=paras.map(p=>[...p.children].map(r=>r.localName==='br'?'\n':(r.localName==='r'||r.localName==='fld')?(kid(r,'t')||{}).textContent||'':'').join('')).join('\n');
+      if(fl||st)W.out.push(tag(rectItem({...box,fill:fl,stroke:st,sw:lnEl&&lnEl.getAttribute('w')?+lnEl.getAttribute('w')/EMU:0.3}),{kind:'fill',hasText:!!text.trim(),o:{...box}}));
+      if(!text.trim())continue;
+      const bp=kid(tb,'bodyPr'),A=(n,def)=>bp&&bp.getAttribute(n)!=null?+bp.getAttribute(n)/EMU:def;
+      const ins={l:A('lIns',2.54),t:A('tIns',1.27),r:A('rIns',2.54),b:A('bIns',1.27)};
+      const vert=bp&&/^(eaVert|vert|wordArtVert|mongolianVert)$/.test(bp.getAttribute('vert')||'');
+      const af=bp&&kid(bp,'normAutofit'),scale=af&&af.getAttribute('fontScale')?+af.getAttribute('fontScale')/100000:1;
+      const rPr=tb.getElementsByTagNameNS(NA,'rPr')[0]||tb.getElementsByTagNameNS(NA,'endParaRPr')[0];
+      const isTitle=ph&&/^(title|ctrTitle)$/.test(ph.type);
+      const DR=[];if(rPr)DR.push(rPr);
+      {const ls=kid(tb,'lstStyle'),lp=ls&&kid(ls,'lvl1pPr'),dr=lp&&kid(lp,'defRPr');if(dr)DR.push(dr)}
+      if(ph){const add=sp=>{const t=sp&&kid(sp,'txBody',NP),ls=t&&kid(t,'lstStyle'),lp=ls&&kid(ls,'lvl1pPr'),dr=lp&&kid(lp,'defRPr');if(dr)DR.push(dr)};add(findPh(C.lx,ph));add(findPh(C.mx,ph));
+        const ts=C.mx&&C.mx.getElementsByTagNameNS(NP,'txStyles')[0],st=ts&&kid(ts,isTitle?'titleStyle':/^(body|subTitle|obj)$/.test(ph.type)?'bodyStyle':'otherStyle',NP),lp=st&&kid(st,'lvl1pPr'),dr=lp&&kid(lp,'defRPr');if(dr)DR.push(dr)}
+      const pick=f=>{for(const e of DR){const v=f(e);if(v!=null)return v}return null};
+      let size=pick(e=>e.getAttribute('sz')?+e.getAttribute('sz')/100:null)||(isTitle?40:ph?24:18);size=Math.round(size*scale*10)/10;
+      let font=pick(e=>{const f=kid(e,'ea')||kid(e,'latin');return f&&f.getAttribute('typeface')||null})||'';
+      if(!font||font.startsWith('+'))font=(font.startsWith('+mj')||(!font&&isTitle)?C.fonts.mj:C.fonts.mn)||'Noto Sans JP';
+      const col=pick(e=>color(C,kid(e,'solidFill')))||hexC('#'+(C.scheme[C.cmap.tx1||'dk1']||'000000'));
+      const bold=pick(e=>e.getAttribute('b')!=null?e.getAttribute('b')==='1':null);
+      const pPr=paras[0]&&kid(paras[0],'pPr'),al=pPr&&pPr.getAttribute('algn');
+      const lsp=pPr&&kid(pPr,'lnSpc'),pct=lsp&&kid(lsp,'spcPct'),pts=lsp&&kid(lsp,'spcPts');
+      const leading=pct?Math.round(+pct.getAttribute('val')/1000*1.2):pts?Math.round(+pts.getAttribute('val')/size):120;
+      const anchor=(bp&&bp.getAttribute('anchor'))||(isTitle&&ph.type!=='ctrTitle'?'ctr':'t');
+      const it=textItem({x:box.x+ins.l,y:box.y+ins.t,w:Math.max(1,box.w-ins.l-ins.r),h:Math.max(1,box.h-ins.t-ins.b),text,font,size,weight:bold?700:400,
+        leading:clamp(leading,80,400),dir:vert?'v':'h',align:al==='ctr'?'center':al==='r'?'end':'start',anchor:anchor==='ctr'?'ctr':anchor==='b'?'b':'t',color:col});
+      W.out.push(tag(it,{kind:'text',ins,scale,o:{x:it.x,y:it.y,w:it.w,h:it.h,text,size,weight:it.weight,color:cHex(col),font}}));
+      }catch(err){errors.push(err)}
+    }
+  };
+  const underOf=async(C,sx)=>{
+    const showM=x=>!x||x.documentElement.getAttribute('showMasterSp')!=='0';
+    const k=C.lpart+'|'+showM(sx);if(underCache.has(k))return underCache.get(k);
+    const out=[];
+    if(showM(sx)){
+      if(showM(C.lx)&&C.mx){const t=C.mx.getElementsByTagNameNS(NP,'spTree')[0];if(t)await walk({C,rels:C.mrel,out,ids:null},t,TF0,false)}
+      if(C.lx){const t=C.lx.getElementsByTagNameNS(NP,'spTree')[0];if(t)await walk({C,rels:C.lrel,out,ids:null},t,TF0,false)}
+    }
+    underCache.set(k,out);return out;
+  };
+  for(let si=0;si<parts.length;si++){
+    const {part,hidden}=parts[si];pptxProgress(`スライド ${si+1} / ${parts.length}`,si,parts.length);
+    try{
+      const sx=await xml(part);if(!sx)continue;const srel=await rels(part);
+      const C=await ctxOf((relOf(srel,'slideLayout')||{}).target);
+      const bg=(await bgOf(C,sx,part,srel))||(await bgOf(C,C.lx,C.lpart,C.lrel))||(await bgOf(C,C.mx,C.mpart,C.mrel));
+      const pg={id:uid(),items:[],noNombre:true,part,bg:bg&&bg.color||null,srcIds:[]};if(hidden)pg.hidden=true;
+      const under=[];if(bg&&bg.img)under.push(imageItem({x:0,y:0,w:r1(cx/EMU),h:r1(cy/EMU),imageId:bg.img,fit:'cover'}));
+      under.push(...await underOf(C,sx));if(under.length)pg.under=under;
+      const npart=(relOf(srel,'notesSlide')||{}).target,nx=npart&&await xml(npart);
+      if(nx){pg.notesPart=npart;for(const sp of nx.getElementsByTagNameNS(NP,'sp')){const ph=sp.getElementsByTagNameNS(NP,'ph')[0];if(!ph||(ph.getAttribute('type')||'body')!=='body')continue;
+        pg.notes=[...sp.getElementsByTagNameNS(NA,'p')].map(p=>[...p.getElementsByTagNameNS(NA,'t')].map(t=>t.textContent).join('')).join('\n').trim();break}}
+      pg.notesOrig=pg.notes||'';
+      const tree=sx.getElementsByTagNameNS(NP,'spTree')[0];
+      if(tree)await walk({C,rels:srel,out:pg.items,ids:pg.srcIds},tree,TF0,false);
+      d.pages.push(pg);
+    }catch(err){errors.push(err);d.pages.push({id:uid(),items:[],noNombre:true,part,srcIds:[],broken:true})}
+    cache.delete(part);
+    if(si%4===3)await new Promise(r=>setTimeout(r,0));
   }
   if(!d.pages.length)throw new Error('スライドが見つかりません');
+  if(errors.length)console.warn('pptx import',errors);
   S.doc=d;S.images=images;S.media=vmedia;S.pptxSrc=u8;S.sel=null;S.page=0;fitZoom();rebuild();renderAll();resetHistory();
+  kvSet('pptxsrc',{key,blob:file});
+  if(errors.length)toast(`一部の要素を表示できませんでした（${errors.length}件）。保存時は元のまま残ります`);
 }
 const near=(a,b)=>Math.abs(a-b)<0.05;
 function setXfrm(el,x,y,w,h){
@@ -3233,7 +3317,19 @@ async function patchPPTX(){
   const ents=PZ.read(S.pptxSrc),map=new Map(ents.map(e=>[e.name,e])),td=new TextDecoder(),out=new Map(),added=[];let mi=0;
   const ser=x=>XH+new XMLSerializer().serializeToString(x).replace(/^<\?xml[^>]*>\s*/,'');
   const parse=async n=>new DOMParser().parseFromString(td.decode(await PZ.data(map.get(n))),'application/xml');
-  const exts=new Map();
+  const exts=new Map(),ctOver=[];let nmPath=null;
+  const ensureNotesMaster=async()=>{if(nmPath)return nmPath;
+    const prx=await parse('ppt/_rels/presentation.xml.rels'),ex=[...prx.documentElement.children].find(r=>(r.getAttribute('Type')||'').endsWith('/notesMaster'));
+    if(ex)return nmPath=partResolve('ppt/presentation.xml',ex.getAttribute('Target'));
+    nmPath='ppt/notesMasters/notesMasterTb.xml';const th='ppt/theme/themeTbNotes.xml';
+    const t1=[...map.keys()].find(n=>/^ppt\/theme\/theme\d+\.xml$/.test(n));
+    out.set(th,t1?td.decode(await PZ.data(map.get(t1))):themeXml(THEMES.mono));
+    out.set(nmPath,XH+`<p:notesMaster ${NS}><p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree>${GRP}${NOTE_SP('<a:p><a:endParaRPr lang="ja-JP"/></a:p>','<a:xfrm><a:off x="685800" y="4400550"/><a:ext cx="5486400" cy="3600450"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>')}</p:spTree></p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/></p:notesMaster>`);
+    out.set(relsPath(nmPath),relsXml([rel('rId1','theme','../theme/'+th.split('/').pop())]));
+    const rr=prx.createElementNS(prx.documentElement.namespaceURI,'Relationship');rr.setAttribute('Id','rIdTbNM');rr.setAttribute('Type',RT+'notesMaster');rr.setAttribute('Target','notesMasters/notesMasterTb.xml');prx.documentElement.appendChild(rr);out.set('ppt/_rels/presentation.xml.rels',ser(prx));
+    const px=await parse('ppt/presentation.xml'),root=px.documentElement,lst=px.createElementNS(NP,'p:notesMasterIdLst'),idn=px.createElementNS(NP,'p:notesMasterId');idn.setAttributeNS(NR,'r:id','rIdTbNM');lst.appendChild(idn);
+    const sm=kid(root,'sldMasterIdLst',NP);root.insertBefore(lst,sm?sm.nextSibling:root.firstChild);out.set('ppt/presentation.xml',ser(px));
+    ctOver.push(['/'+nmPath,CT+'presentationml.notesMaster+xml'],['/'+th,CT+'theme+xml']);return nmPath};
   for(const pg of S.doc.pages){
     if(!pg.part||!map.get(pg.part))continue;
     const x=await parse(pg.part);let changed=false,rx=null;const rp=relsPath(pg.part);
@@ -3262,10 +3358,20 @@ async function patchPPTX(){
       const frag=await itemsXml(fresh,{id:()=>nid++,img:addImg,video:addVid});
       if(frag){const tree=x.getElementsByTagNameNS(NP,'spTree')[0],fx=new DOMParser().parseFromString(`<p:spTree ${NS}>${frag}</p:spTree>`,'application/xml');
         for(const c of [...fx.documentElement.children])tree.appendChild(x.importNode(c,true));changed=true}}
+    if((pg.notes||'')!==(pg.notesOrig||'')){
+      if(pg.notesPart&&map.get(pg.notesPart)){const nx=await parse(pg.notesPart);let tb=null;
+        for(const sp of nx.getElementsByTagNameNS(NP,'sp')){const ph=sp.getElementsByTagNameNS(NP,'ph')[0];if(ph&&(ph.getAttribute('type')||'body')==='body'){tb=kid(sp,'txBody',NP);break}}
+        if(tb){setText(tb,pg.notes||'');out.set(pg.notesPart,ser(nx))}}
+      else if(pg.notes){const nmp=await ensureNotesMaster(),np=`ppt/notesSlides/notesSlideTb${++mi}.xml`;
+        const paras=String(pg.notes).split('\n').map(l=>`<a:p>${l?`<a:r><a:rPr lang="ja-JP" dirty="0"/><a:t>${X(l)}</a:t></a:r>`:''}<a:endParaRPr lang="ja-JP" dirty="0"/></a:p>`).join('');
+        out.set(np,XH+`<p:notes ${NS}><p:cSld><p:spTree>${GRP}${NOTE_SP(paras)}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:notes>`);
+        out.set(relsPath(np),relsXml([rel('rId1','notesMaster','../notesMasters/'+nmp.split('/').pop()),rel('rId2','slide','../slides/'+pg.part.split('/').pop())]));
+        await addRel(RT+'notesSlide','../notesSlides/'+np.split('/').pop());ctOver.push(['/'+np,CT+'presentationml.notesSlide+xml'])}}
     if(changed)out.set(pg.part,ser(x));
     if(rx)out.set(rp,ser(rx));
   }
-  if(exts.size){const ct=await parse('[Content_Types].xml'),root=ct.documentElement,have=new Set([...root.children].filter(c=>c.localName==='Default').map(c=>c.getAttribute('Extension').toLowerCase()));
+  if(exts.size||ctOver.length){const ct=await parse('[Content_Types].xml'),root=ct.documentElement,have=new Set([...root.children].filter(c=>c.localName==='Default').map(c=>c.getAttribute('Extension').toLowerCase()));
+    for(const [pn,t] of ctOver){const el=ct.createElementNS(root.namespaceURI,'Override');el.setAttribute('PartName',pn);el.setAttribute('ContentType',t);root.appendChild(el)}
     for(const [e,t] of exts)if(!have.has(e)){const el=ct.createElementNS(root.namespaceURI,'Default');el.setAttribute('Extension',e);el.setAttribute('ContentType',t);root.insertBefore(el,root.firstChild)}
     out.set('[Content_Types].xml',ser(ct))}
   const list=ents.map(e=>out.has(e.name)?{name:e.name,data:out.get(e.name)}:e);
