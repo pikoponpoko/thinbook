@@ -1304,7 +1304,7 @@ function renderProps(){
   if(it.type==='table'){const pi=S.sel.page;
     $('#tbSync').onclick=async()=>{if(XL.book()===(it.link&&it.link.book)){if(await tblRefresh(it)){dirty(pi);commit();renderProps();toast('表を更新しました')}else toast('範囲を読み込めません')}else $('#fXl').click()};
     if($('#tbOpen'))$('#tbOpen').onclick=()=>XL.show(true);
-    $('#tbFit').onclick=()=>{it.h=it.size*PT*1.6*it.tbl.cells.length;dirty(pi);commit();drawOverlay(pi);renderProps()};
+    $('#tbFit').onclick=()=>{it.h=r1(it.size*PT*1.6*it.tbl.cells.length);dirty(pi);commit();drawOverlay(pi);renderProps()};
     $('#tbRange').onchange=async e=>{if(!it.link)return;it.link.range=e.target.value.trim().toUpperCase();if(XL.book()===it.link.book&&!(await tblRefresh(it)))toast('範囲を読み込めません');dirty(pi);commit();drawOverlay(pi);renderProps()};}
   const vp=$('#bVPick');if(vp)vp.onclick=()=>{vidTarget=it;$('#fVid').click()};const vpl=$('#bVPlay');if(vpl)vpl.onclick=()=>playVideo(it);
   $('#bFront').onclick=()=>order(1);$('#bBack').onclick=()=>order(-1);$('#bDup').onclick=dupSel;$('#bDel').onclick=delSel;
@@ -2137,7 +2137,7 @@ function drawTable(ctx,it,ch,preview){
 function tblItems(fn){const d=S.doc,out=[];if(!d)return out;d.pages.forEach((pg,i)=>pg.items.forEach(it=>{if(it.type==='table'&&(!fn||fn(it)))out.push({it,i})}));return out}
 async function tblRefresh(it){const s=await XL.snap(it.link.sheet,it.link.range);if(!s)return false;
   const prev=it.tbl,sameShape=prev&&prev.cells.length===s.cells.length&&prev.cw.length===s.cw.length;
-  if(!sameShape){const fs=it.size*PT;it.h=Math.max(fs*1.6*s.cells.length,5)}
+  if(!sameShape){const fs=it.size*PT;it.h=r1(Math.max(fs*1.6*s.cells.length,5))}
   it.tbl=s;return true}
 let tbSyncT=0;
 window.tbXlChanged=now=>{clearTimeout(tbSyncT);tbSyncT=setTimeout(async()=>{
@@ -2163,7 +2163,7 @@ function tblInsertDialog(){
       if(bd){pg.items.splice(pg.items.indexOf(bd),1);m={x:bd.x,y:bd.y,w:bd.w,h:bd.h}}rebuild()}
     if(!m)m=sl?{x:W*0.08,y:H*0.18,w:W*0.84,h:H*0.74}:margBox(pi);
     const size=sl?Math.max(9,Math.min(16,m.h/PT/1.7/s.cells.length)):8,fs=size*PT,T=sl?theme():null;
-    const h=Math.min(m.h,fs*1.7*s.cells.length),it=tableItem({x:m.x,y:m.y,w:m.w,h,size:Math.round(size*2)/2,link,tbl:s});
+    const h=Math.min(m.h,fs*1.7*s.cells.length),it=tableItem({x:r1(m.x),y:r1(m.y),w:r1(m.w),h:r1(h),size:Math.round(size*2)/2,link,tbl:s});
     if(T)Object.assign(it,{font:T.body,color:hexC(T.ink),line:hexC(T.ink)});
     d.pages[pi].items.push(it);closeModal();XL.show(false);if(S.page!==pi&&typeof centerStage==='function'){setPage(pi);centerStage(pi)}
     dirty(pi);commit();select(pi,it.id);toast('表を差し込みました。Excel で直すと反映されます');
