@@ -3111,6 +3111,24 @@ function drawSugThumbs(root,pi){
   for(const b of root.querySelectorAll('.sug')){const k=b.dataset.lay,p=k===pg.layout?pg:relayout(pg,k,pi,T);drawSlideThumb(b.querySelector('canvas'),p,T,130)}
 }
 /* PPTX：スライドで個別に動かしたプレースホルダーを、レイアウト（マスター）の枠の位置・大きさに戻す */
+/* スライドの中身を余白ガイドに揃える。全面の背景（スライドをほぼ覆う・はみ出す要素）とグループ内の要素は動かさない。
+   中身全体の外枠を余白の枠に写す：外枠の端に接している要素はその端を余白の端に合わせ、それ以外は中心を写す。
+   画像・動画は縦横比を保ち、文字枠と図形は枠だけを伸縮する（文字サイズは変えない） */
+function fitToGuide(idx){const d=S.doc,W=pw(d),H=d.trimH,E=1;let n=0;
+  for(const pi of idx){const pg=d.pages[pi],g=margBox(pi);
+    const its=pg.items.filter(it=>!(it.src&&it.src.grp)&&!(it.w*it.h>=W*H*0.9)&&it.x>=-E&&it.y>=-E&&it.x+it.w<=W+E&&it.y+it.h<=H+E);
+    if(!its.length)continue;
+    const bx0=Math.min(...its.map(i=>i.x)),by0=Math.min(...its.map(i=>i.y)),bx1=Math.max(...its.map(i=>i.x+i.w)),by1=Math.max(...its.map(i=>i.y+i.h));
+    const bw=bx1-bx0,bh=by1-by0;if(bw<1||bh<1)continue;
+    const sx=g.w/bw,sy=g.h/bh;if(Math.abs(sx-1)<1e-3&&Math.abs(sy-1)<1e-3&&Math.abs(bx0-g.x)<0.05&&Math.abs(by0-g.y)<0.05)continue;
+    const ax=(a0,a1,len,b0,b1,s,G0,G1)=>{if(Math.abs(a0-b0)<=E)return G0;if(Math.abs(a1-b1)<=E)return G1-len;const c=(a0+a1)/2;return G0+(c-b0)*s-len/2};
+    for(const it of its){const keep=it.type==='image'||it.type==='video',k=Math.min(sx,sy);
+      const w=keep?it.w*k:it.w*sx,h=keep?it.h*k:it.h*sy;
+      const x=ax(it.x,it.x+it.w,w,bx0,bx1,sx,g.x,g.x+g.w),y=ax(it.y,it.y+it.h,h,by0,by1,sy,g.y,g.y+g.h);
+      it.x=r1(x);it.y=r1(y);it.w=r1(Math.max(1,w));it.h=r1(Math.max(1,h))}
+    dirty(pi);n++}
+  if(n){S.lmap=null;commit();renderProps()}
+  toast(n?`${n}枚のスライドを余白に揃えました`:'揃えるものはありません')}
 function snapToLayout(idx){const d=S.doc;let n=0;
   for(const pi of idx){const pg=d.pages[pi];let hit=false;
     for(const it of pg.items){const s=it.src,L=s&&s.lay;if(!L||s.kind==='pic')continue;
@@ -3123,8 +3141,10 @@ function renderSlideProps(el){
   const d=S.doc,pg=d.pages[S.page];
   el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1} のレイアウト案</h3><div class="lays sugs" id="laySug">${sugBtns(S.page)}</div></div>
     <div class="sec"><h3>すべてのレイアウト</h3><div class="lays" id="layCur">${layBtns(pg.layout)}</div></div>${slideBgSec(pg)}`+
+    `<div class="sec"><h3>余白に揃える</h3><div class="row"><button id="fitG">このスライド</button><button id="fitGAll">すべてのスライド</button></div></div>`+
     (d.pptx?`<div class="sec"><h3>文字枠</h3><div class="row"><button id="phSnap">レイアウトの位置に戻す</button><button id="phSnapAll">すべてのスライド</button></div></div>`:`<div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`);
   drawLayThumbs(el,slideTheme(pg));drawSugThumbs(el,S.page);
+  $('#fitG').onclick=()=>fitToGuide([S.page]);$('#fitGAll').onclick=()=>fitToGuide(d.pages.map((_,i)=>i));
   if(d.pptx){$('#phSnap').onclick=()=>snapToLayout([S.page]);$('#phSnapAll').onclick=()=>snapToLayout(d.pages.map((_,i)=>i))}
   $('#laySug').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
   $('#layCur').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
@@ -3695,12 +3715,12 @@ async function importPPTXInner(file){
   const xfOf=sp=>{const pr=kid(sp,'spPr',NP)||kid(sp,'grpSpPr',NP),xf=pr&&kid(pr,'xfrm');if(!xf)return null;const o=kid(xf,'off'),e=kid(xf,'ext');if(!o||!e)return null;
     return{x:+o.getAttribute('x'),y:+o.getAttribute('y'),w:+e.getAttribute('cx'),h:+e.getAttribute('cy'),flat:xf}};
   const TF0=(x,y,w,h)=>({x:r1(x/EMU),y:r1(y/EMU),w:r1(w/EMU),h:r1(h/EMU)});
-  /* 余白ガイドは、最初のマスターのタイトルと本文のプレースホルダーを囲む範囲に合わせる（PowerPointのレイアウト枠と揃える） */
+  /* 余白ガイドは、最初のマスターのタイトルと本文のプレースホルダーを囲む範囲に合わせる。上下・左右はそれぞれ狭いほうに揃えて中央に置く */
   {const me=pres.getElementsByTagNameNS(NP,'sldMasterId')[0],mp=me&&(prel[me.getAttributeNS(NR,'id')]||{}).target,mx=mp&&await xml(mp);
     if(mx){let x0=1e15,y0=1e15,x1=-1e15,y1=-1e15;
       for(const sp of mx.getElementsByTagNameNS(NP,'sp')){const p=phOf(sp);if(!p||!/^(title|body)$/.test(p.type))continue;const g=xfOf(sp);if(!g)continue;
         x0=Math.min(x0,g.x);y0=Math.min(y0,g.y);x1=Math.max(x1,g.x+g.w);y1=Math.max(y1,g.y+g.h)}
-      if(x1>x0&&y1>y0&&x0>=0&&y0>=0&&x1<=cx&&y1<=cy){const side=r1(Math.min(x0,cx-x1)/EMU);d.margins={top:r1(y0/EMU),bottom:r1((cy-y1)/EMU),inner:side,outer:side}}}}
+      if(x1>x0&&y1>y0&&x0>=0&&y0>=0&&x1<=cx&&y1<=cy){const side=r1(Math.min(x0,cx-x1)/EMU),tb=r1(Math.min(y0,cy-y1)/EMU);d.margins={top:tb,bottom:tb,inner:side,outer:side}}}}
   // W = {C, rels, out, ids|null(locked)}
   const walk=async(W,tree,tf,inGrp)=>{
     const {C}=W;
