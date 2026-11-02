@@ -818,6 +818,7 @@ const spreadsEl=$('#spreads'),pagesEl=$('#pages'),stage=$('#stage');
 function spreadsOf(d){if(d.kind==='cover')return[[0]];if(d.kind==='slide')return d.pages.map((_,i)=>[i]);const n=d.pages.length,sp=[[0]];for(let i=1;i<n;i+=2)sp.push(i+1<n?[i,i+1]:[i]);return sp}
 const io=new IntersectionObserver(es=>{for(const e of es){const i=+e.target.dataset.i;if(e.isIntersecting){S.visible.add(i);S.dirty.add(i)}else S.visible.delete(i)}schedule()},{root:stage,rootMargin:'300px'});
 function rebuild(){
+  stopInline();
   const d=S.doc,b=d.bleed,W=pw(d),H=d.trimH;S.s=PX*S.zoom;
   S.lmap=null;io.disconnect();spreadsEl.innerHTML='';pagesEl.innerHTML='';S.pageEls=[];S.thumbEls=[];S.visible.clear();lcache.clear();
   const pwpx=(W+2*b)*S.s,phpx=(H+2*b)*S.s,TH=thumbH(),tS=TH/H,label=i=>d.kind==='cover'?'表紙':S.mv?d.pages[i].name||'':nombreText(i);
@@ -1082,9 +1083,9 @@ spreadsEl.addEventListener('pointerdown',e=>{
   if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
   if(S.tool==='select'){
     if(e.target.classList.contains('h')){const it=selItem();S.drag={mode:'resize',pi,id:it.id,dir:e.target.dataset.d,p0:p,o:{x:it.x,y:it.y,w:it.w,h:it.h}}}
-    else{const it=hit(pi,p),touch=e.pointerType==='touch';
-      if(touch&&!(it&&S.sel&&S.sel.page===pi&&S.sel.id===it.id)){S.drag={mode:'pan',pi,tap:it?it.id:null,x0:e.clientX,y0:e.clientY,sl:stage.scrollLeft,st:stage.scrollTop,moved:false}}
-      else if(it){select(pi,it.id);S.drag={mode:'move',pi,id:it.id,p0:p,o:{x:it.x,y:it.y,w:it.w,h:it.h},x0:e.clientX,y0:e.clientY,live:!touch}}
+    else{const it=hit(pi,p),touch=e.pointerType==='touch',pl=it&&inl&&inl.id===it.id?it.id:playHit(it,p)?it.id:null;if(!pl||!inl||inl.id!==pl)stopInline();
+      if(touch&&!(it&&S.sel&&S.sel.page===pi&&S.sel.id===it.id)){S.drag={mode:'pan',pi,tap:it?it.id:null,x0:e.clientX,y0:e.clientY,sl:stage.scrollLeft,st:stage.scrollTop,moved:false,play:pl}}
+      else if(it){select(pi,it.id);S.drag={mode:'move',pi,id:it.id,p0:p,o:{x:it.x,y:it.y,w:it.w,h:it.h},x0:e.clientX,y0:e.clientY,live:!touch&&!pl,play:pl}}
       else{select(null);return}}
   }else S.drag={mode:'create',pi,p0:p,rect:null};
   pg.setPointerCapture(e.pointerId);e.preventDefault();
@@ -1105,9 +1106,28 @@ spreadsEl.addEventListener('pointermove',e=>{
   }
   dirty(D.pi);
 });
+/* 編集画面：動画の再生ボタンを押すとその場で再生（動かしたときは再生しない） */
+document.addEventListener('pointerdown',e=>{if(inl&&!e.target.closest('.page'))stopInline()},true);
+function playHit(it,p){if(!it||it.type!=='video'||!it.mediaId||!S.media[it.mediaId])return false;const r=Math.min(it.w,it.h)*0.14;return Math.hypot(p.x-(it.x+it.w/2),p.y-(it.y+it.h/2))<=r}
+let inl=null;
+function stopInline(){const I=inl;if(!I)return;inl=null;try{I.el.pause()}catch(e){}I.el.remove();if(I.url)URL.revokeObjectURL(I.url);if(I.el.wvDestroy)I.el.wvDestroy()}
+function inlineTap(pi,id){const I=inl;if(I&&I.id===id&&I.el){const e=I.el,p=I.p;if(e.paused){if(p.end&&e.currentTime>=p.end-0.05)e.currentTime=p.st||0;e.play().catch(()=>{})}else e.pause();return}inlinePlay(pi,id)}
+async function inlinePlay(pi,id){stopInline();const it=findItem({page:pi,id}),m=it&&S.media[it.mediaId];if(!m)return;
+  const tok={id,p:it.play||{}};inl=tok;if(!m.blob)toast('動画を読み込んでいます…');let b;try{b=await mediaBlob(m)}catch(e){}if(inl!==tok)return;if(!b){inl=null;toast('動画を読み込めませんでした');return}
+  const wc=!(await blobMediaUsable());if(inl!==tok)return;const pe=S.pageEls[pi];if(!pe){inl=null;return}
+  const p=it.play||{},st=p.st||0,bl=S.doc.bleed,url=wc?null:URL.createObjectURL(b),el=wc?WV.attach(document.createElement('canvas'),b):document.createElement('video');
+  if(!wc){el.playsInline=true;el.preload='auto';el.src=url}
+  el.style.cssText=`position:absolute;z-index:3;left:${(it.x+bl)*S.s}px;top:${(it.y+bl)*S.s}px;width:${it.w*S.s}px;height:${it.h*S.s}px;object-fit:${it.fit==='stretch'?'fill':'contain'};background:#000;pointer-events:none`;el.className='inl';
+  el.volume=p.vol==null?1:p.vol;el.muted=!!p.mute;Object.assign(tok,{el,url});
+  el.addEventListener('loadedmetadata',()=>{if(st)el.currentTime=st;el.play().catch(()=>{})},{once:true});
+  el.addEventListener('timeupdate',()=>{if(!el.isConnected){if(inl===tok)stopInline();else el.pause();return}if(p.end&&el.currentTime>=p.end){if(p.loop)el.currentTime=st;else stopInline()}});
+  el.addEventListener('ended',()=>{if(p.loop){el.currentTime=st;el.play().catch(()=>{})}else if(inl===tok)stopInline()});
+  el.addEventListener('error',()=>{toast(wc&&el.error&&el.error.message?el.error.message:'このブラウザでは再生できない形式です');if(inl===tok)stopInline()});
+  pe.el.append(el)}
 function endDrag(){
-  const D=S.drag;if(!D)return;S.drag=null;if(D.mode==='pan'){if(!D.moved)select(D.tap?D.pi:null,D.tap);return}
-  if(D.mode==='move'&&!D.live)return;
+  const D=S.drag;if(!D)return;S.drag=null;if(D.mode==='pan'){if(!D.moved){select(D.tap?D.pi:null,D.tap);if(D.play)inlineTap(D.pi,D.play)}return}
+  if(D.mode==='move'&&!D.live){if(D.play)inlineTap(D.pi,D.play);return}
+  if(D.mode==='move')stopInline();
   if(D.mode==='create'){
     let r=D.rect;if(!r||r.w<2||r.h<2){const W=S.tool==='text'?40:40;r={x:D.p0.x,y:D.p0.y,w:W,h:W}}
     r={x:r1(r.x),y:r1(r.y),w:r1(r.w),h:r1(r.h)};
