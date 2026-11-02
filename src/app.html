@@ -3608,11 +3608,13 @@ async function importPPTXInner(file){
       const it=textItem({x:box.x+ins.l,y:box.y+ins.t,w:Math.max(1,box.w-ins.l-ins.r),h:Math.max(1,box.h-ins.t-ins.b),text,font,size,weight:bold?700:400,
         leading:clamp(leading,80,400),dir:vert?'v':'h',align:al==='ctr'?'center':al==='r'?'end':'start',anchor:anchor==='ctr'?'ctr':anchor==='b'?'b':'t',color:col});
       /* 段落ごとの文字サイズ・太字（先頭の文字の書式で代表させる）。全段落同じなら持たない */
-      if(!vert&&paras.length>1){const base=size/scale,pb=bold;
+      if(!vert&&paras.length>1){const base=size/scale,DI=rPr?DR.slice(1):DR,pk=f=>{for(const e of DI){const v=f(e);if(v!=null)return v}return null};
+        /* 段落に指定がないときは先頭ランではなく継承元（lstStyle・プレースホルダー・マスター）の値を使う */
+        const isz=pk(e=>e.getAttribute('sz')?+e.getAttribute('sz')/100:null)||(isTitle?40:ph?24:18),pb=!!pk(e=>e.getAttribute('b')!=null?e.getAttribute('b')==='1':null);
         const ps=paras.map(p=>{const r0=[...p.children].find(r=>r.localName==='r'||r.localName==='fld'),rp=(r0&&kid(r0,'rPr'))||kid(p,'endParaRPr');
-          const z=rp&&rp.getAttribute('sz')?+rp.getAttribute('sz')/100:base,b=rp&&rp.getAttribute('b')!=null?rp.getAttribute('b')==='1':pb;
+          const z=rp&&rp.getAttribute('sz')?+rp.getAttribute('sz')/100:isz,b=rp&&rp.getAttribute('b')!=null?rp.getAttribute('b')==='1':pb;
           return{r:Math.round(z/base*1000)/1000,b:b?1:0}});
-        if(ps.some(q=>q.r!==1||!!q.b!==!!pb))it.ps=ps}
+        if(ps.some(q=>q.r!==1||!!q.b!==!!bold))it.ps=ps}
       W.out.push(tag(it,{kind:'text',ins,scale,fref,o:{x:it.x,y:it.y,w:it.w,h:it.h,text,size,weight:it.weight,color:cHex(col),font}}));
       }catch(err){errors.push(err)}
     }
