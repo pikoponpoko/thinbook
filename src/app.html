@@ -403,6 +403,7 @@ textarea#pNotes{width:100%;min-height:100px;resize:vertical;line-height:1.6}
 #app:not(.k-slide) .tabs .sl-only{display:none}
 #app.k-slide #spreads{flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:flex-start;align-content:center;min-width:max-content;min-height:100%;box-sizing:border-box;padding-inline:max(32px,calc(50% - var(--sw,0px)/2));padding-block:56px}
 @media (max-width:820px){#app.k-slide #spreads{padding-inline:max(12px,calc(50% - var(--sw,0px)/2));padding-block:12px}}
+#app.k-slide #stage{scroll-snap-type:x mandatory}#app.k-slide #spreads .slot{scroll-snap-align:center}
 #tab-notes #pNotes{min-height:min(50vh,420px)}
 @media (max-width:820px){#tab-notes #pNotes{min-height:26dvh}}
 .kinds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
@@ -1347,7 +1348,7 @@ $('#tab-pf').addEventListener('click',e=>{const b=e.target.closest('.pfi');if(!b
 /* ---------- zoom ---------- */
 function zoomBy(k){S.zoom=clamp(S.zoom*k,0.2,6);rebuild();if(S.sel)drawOverlay(S.sel.page)}
 function fitZoom(){const d=S.doc,h=stage.clientHeight||700,w=stage.clientWidth||900,pad=S.single?24:70;const ph=(d.trimH+2*d.bleed)*PX,spw=(S.single||d.kind!=='body'?pw(d)+2*d.bleed:(pw(d)+2*d.bleed)*2)*PX+(S.single?0:12);
-  if(d.kind==='slide'){S.zoom=clamp(Math.min((h-(S.single?Math.min(96,h*0.4):150))/ph,(w-pad)*0.84/spw),0.08,S.single?3:1.5);return}
+  if(d.kind==='slide'){S.zoom=clamp(Math.min((h-(S.single?Math.min(96,h*0.4):150))/ph,(w-(S.single?24:64))/spw),0.08,S.single?3:1.5);return}
   S.zoom=S.single?clamp((w-pad)/spw,0.2,3):clamp(Math.min((h-90)/ph,(w-pad)/spw,1.5),0.2,1.5)}
 $('#bZi').onclick=()=>zoomBy(1.25);$('#bZo').onclick=()=>zoomBy(0.8);
 $('#bGuide').onclick=()=>{S.guides=!S.guides;$('#bGuide').classList.toggle('on',S.guides);dirtyAll()};
