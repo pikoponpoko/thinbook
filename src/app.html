@@ -3110,25 +3110,28 @@ function drawSugThumbs(root,pi){
   const pg=S.doc.pages[pi],T=slideTheme(pg);
   for(const b of root.querySelectorAll('.sug')){const k=b.dataset.lay,p=k===pg.layout?pg:relayout(pg,k,pi,T);drawSlideThumb(b.querySelector('canvas'),p,T,130)}
 }
-/* PPTX：スライドで個別に動かしたプレースホルダーを、レイアウト（マスター）の枠の位置・大きさに戻す */
 /* スライドの中身を余白ガイドに揃える。全面の背景（スライドをほぼ覆う・はみ出す要素）とグループ内の要素は動かさない。
    中身全体の外枠を余白の枠に写す：外枠の端に接している要素はその端を余白の端に合わせ、それ以外は中心を写す。
+   文字枠はPPTXの内側余白（lIns等）を含めた外側の枠で揃える（ガイド表示の点線と同じ枠）。
    画像・動画は縦横比を保ち、文字枠と図形は枠だけを伸縮する（文字サイズは変えない） */
 function fitToGuide(idx){const d=S.doc,W=pw(d),H=d.trimH,E=1;let n=0;
+  const insOf=it=>it.type==='text'&&it.src&&it.src.ins||{l:0,t:0,r:0,b:0};
   for(const pi of idx){const pg=d.pages[pi],g=margBox(pi);
     const its=pg.items.filter(it=>!(it.src&&it.src.grp)&&!(it.w*it.h>=W*H*0.9)&&it.x>=-E&&it.y>=-E&&it.x+it.w<=W+E&&it.y+it.h<=H+E);
     if(!its.length)continue;
-    const bx0=Math.min(...its.map(i=>i.x)),by0=Math.min(...its.map(i=>i.y)),bx1=Math.max(...its.map(i=>i.x+i.w)),by1=Math.max(...its.map(i=>i.y+i.h));
+    const fr=its.map(it=>{const k=insOf(it);return{it,k,x:it.x-k.l,y:it.y-k.t,w:it.w+k.l+k.r,h:it.h+k.t+k.b}});
+    const bx0=Math.min(...fr.map(f=>f.x)),by0=Math.min(...fr.map(f=>f.y)),bx1=Math.max(...fr.map(f=>f.x+f.w)),by1=Math.max(...fr.map(f=>f.y+f.h));
     const bw=bx1-bx0,bh=by1-by0;if(bw<1||bh<1)continue;
     const sx=g.w/bw,sy=g.h/bh;if(Math.abs(sx-1)<1e-3&&Math.abs(sy-1)<1e-3&&Math.abs(bx0-g.x)<0.05&&Math.abs(by0-g.y)<0.05)continue;
     const ax=(a0,a1,len,b0,b1,s,G0,G1)=>{if(Math.abs(a0-b0)<=E)return G0;if(Math.abs(a1-b1)<=E)return G1-len;const c=(a0+a1)/2;return G0+(c-b0)*s-len/2};
-    for(const it of its){const keep=it.type==='image'||it.type==='video',k=Math.min(sx,sy);
-      const w=keep?it.w*k:it.w*sx,h=keep?it.h*k:it.h*sy;
-      const x=ax(it.x,it.x+it.w,w,bx0,bx1,sx,g.x,g.x+g.w),y=ax(it.y,it.y+it.h,h,by0,by1,sy,g.y,g.y+g.h);
-      it.x=r1(x);it.y=r1(y);it.w=r1(Math.max(1,w));it.h=r1(Math.max(1,h))}
+    for(const f of fr){const it=f.it,k=f.k,keep=it.type==='image'||it.type==='video',m=Math.min(sx,sy);
+      const w=keep?f.w*m:f.w*sx,h=keep?f.h*m:f.h*sy;
+      const x=ax(f.x,f.x+f.w,w,bx0,bx1,sx,g.x,g.x+g.w),y=ax(f.y,f.y+f.h,h,by0,by1,sy,g.y,g.y+g.h);
+      it.x=x+k.l;it.y=y+k.t;it.w=Math.max(1,w-k.l-k.r);it.h=Math.max(1,h-k.t-k.b)}
     dirty(pi);n++}
   if(n){S.lmap=null;commit();renderProps()}
   toast(n?`${n}枚のスライドを余白に揃えました`:'揃えるものはありません')}
+/* PPTX：スライドで個別に動かしたプレースホルダーを、レイアウト（マスター）の枠の位置・大きさに戻す */
 function snapToLayout(idx){const d=S.doc;let n=0;
   for(const pi of idx){const pg=d.pages[pi];let hit=false;
     for(const it of pg.items){const s=it.src,L=s&&s.lay;if(!L||s.kind==='pic')continue;
