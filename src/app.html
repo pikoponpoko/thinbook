@@ -3090,12 +3090,22 @@ function drawSugThumbs(root,pi){
   const pg=S.doc.pages[pi],T=slideTheme(pg);
   for(const b of root.querySelectorAll('.sug')){const k=b.dataset.lay,p=k===pg.layout?pg:relayout(pg,k,pi,T);drawSlideThumb(b.querySelector('canvas'),p,T,130)}
 }
+/* PPTX：スライドで個別に動かしたプレースホルダーを、レイアウト（マスター）の枠の位置・大きさに戻す */
+function snapToLayout(idx){const d=S.doc;let n=0;
+  for(const pi of idx){const pg=d.pages[pi];let hit=false;
+    for(const it of pg.items){const s=it.src,L=s&&s.lay;if(!L||s.kind==='pic')continue;
+      const k=s.kind==='text'&&s.ins?s.ins:{l:0,t:0,r:0,b:0};
+      it.x=r1(L.x+k.l);it.y=r1(L.y+k.t);it.w=r1(Math.max(1,L.w-k.l-k.r));it.h=r1(Math.max(1,L.h-k.t-k.b));hit=true;n++}
+    if(hit)dirty(pi)}
+  if(n){S.lmap=null;commit();renderProps()}
+  toast(n?`${n}個の枠をレイアウトの位置に戻しました`:'レイアウトと違う位置の枠はありません')}
 function renderSlideProps(el){
   const d=S.doc,pg=d.pages[S.page];
   el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1} のレイアウト案</h3><div class="lays sugs" id="laySug">${sugBtns(S.page)}</div></div>
     <div class="sec"><h3>すべてのレイアウト</h3><div class="lays" id="layCur">${layBtns(pg.layout)}</div></div>${slideBgSec(pg)}`+
-    (d.pptx?'':`<div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`);
+    (d.pptx?`<div class="sec"><h3>文字枠</h3><div class="row"><button id="phSnap">レイアウトの位置に戻す</button><button id="phSnapAll">すべてのスライド</button></div></div>`:`<div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`);
   drawLayThumbs(el,slideTheme(pg));drawSugThumbs(el,S.page);
+  if(d.pptx){$('#phSnap').onclick=()=>snapToLayout([S.page]);$('#phSnapAll').onclick=()=>snapToLayout(d.pages.map((_,i)=>i))}
   $('#laySug').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
   $('#layCur').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
   if(!d.pptx)$('#layAdd').onclick=e=>{const b=e.target.closest('.lay');if(b)addSlide(b.dataset.lay)};
@@ -3687,6 +3697,8 @@ async function importPPTXInner(file){
       let g=xfOf(el),inh=false;const tpl=W.tpl&&ph?{ph:1}:null;
       if(!g&&ph){const s1=findPh(C.lx,ph),s2=findPh(C.mx,ph);g=(s1&&xfOf(s1))||(s2&&xfOf(s2));inh=true}
       if(!g)continue;const box=tf(g.x,g.y,g.w,g.h);const src=W.ids?{id,grp:inGrp,inh}:null;
+      /* 位置を個別に動かしたプレースホルダーは、レイアウト側の枠を覚えておく（「レイアウトの位置に戻す」用） */
+      if(src&&ph&&!inh&&!inGrp&&!W.tpl){const s1=findPh(C.lx,ph),s2=findPh(C.mx,ph),lg=(s1&&xfOf(s1))||(s2&&xfOf(s2));if(lg){const lb=tf(lg.x,lg.y,lg.w,lg.h);if(Math.abs(lb.x-box.x)+Math.abs(lb.y-box.y)+Math.abs(lb.w-box.w)+Math.abs(lb.h-box.h)>0.2)src.lay=lb}}
       const tag=(it,s)=>{if(src)it.src={...src,...s};if(tpl)it.ph=1;return it};
       if(ln==='pic'){const blip=el.getElementsByTagNameNS(NA,'blip')[0],r=blip&&W.rels[blip.getAttributeNS(NR,'embed')];let imageId=null;
         if(r&&r.target&&map.get(r.target)&&IMG.test(r.target))imageId=await loadMedia(r.target);
