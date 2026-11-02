@@ -173,6 +173,13 @@ a:hover{color:var(--accent-hover);text-decoration-thickness:2px}
 .lay canvas{width:100%;aspect-ratio:16/9;border:1px solid var(--line);display:block}
 .lays.sugs{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
 .lay.on{background:var(--accent-soft);color:var(--ink);border-color:var(--accent);outline:1px solid var(--accent)}
+.ilpat{margin-top:6px}
+.ilord{display:flex;flex-wrap:wrap;gap:4px;touch-action:none;user-select:none;-webkit-user-select:none}
+.ilord button{position:relative;padding:2px;line-height:0;cursor:grab}
+.ilord canvas{width:48px;height:48px;display:block;pointer-events:none}
+.ilord span{position:absolute;left:2px;top:2px;min-width:16px;padding:0 3px;font-size:11px;line-height:16px;text-align:center;background:var(--ink);color:var(--bg);pointer-events:none}
+.ilord .on,.ilord .tgt{border-color:var(--accent);outline:2px solid var(--accent)}
+.ilord .drag{opacity:.5}
 .dlg.owide{width:min(640px,100%)}
 textarea.outline{width:100%;min-height:260px;resize:vertical;line-height:1.6;font-family:var(--ui)}
 .hint{font-size:12px;color:var(--sub)}
@@ -1234,7 +1241,8 @@ function renderProps(){
       ${F('台割',`<input type="text" id="pLabel" value="${esc(planOf(pg).title||'')}">`)}
       <label class="chk"><input type="checkbox" id="pNoNb" ${pg.noNombre?'checked':''}> ノンブルを表示しない</label>
       <div class="btns"><button id="pAddB">後ろに2ページ追加</button><button id="pDup">複製</button><button id="pUp">前へ</button><button id="pDn">後ろへ</button></div></div>
-      <div class="sec"><h3>発表者ノート</h3><textarea id="pNotes" spellcheck="false" lang="${d.pres&&d.pres.lang==='en'?'en':'ja'}">${esc(pg.notes||'')}</textarea><div class="btns"><button id="pTts">読み上げ</button></div></div>`;
+      <div class="sec"><h3>発表者ノート</h3><textarea id="pNotes" spellcheck="false" lang="${d.pres&&d.pres.lang==='en'?'en':'ja'}">${esc(pg.notes||'')}</textarea><div class="btns"><button id="pTts">読み上げ</button></div></div>`+imgLaySec(S.page);
+    wireImgLay(S.page);
     $('#pNotes').oninput=e=>{pg.notes=e.target.value;clearTimeout(commitT);commitT=setTimeout(commit,600)};
     $('#pTts').onclick=()=>speak(pg.notes||'',(d.pres&&d.pres.lang)||'ja');
     $('#pNoNb').onchange=e=>{pg.noNombre=e.target.checked;dirty(S.page);commit();runPreflight()};
@@ -1268,11 +1276,12 @@ function renderProps(){
     h+=`<div class="sec"><h3><label class="chk"><input type="checkbox" data-null="fill" ${it.fill?'checked':''}> 塗り</label></h3>${it.fill?colorFields('fill',it.fill):''}</div>
     <div class="sec"><h3><label class="chk"><input type="checkbox" data-null="stroke" ${it.stroke?'checked':''}> 線</label></h3>${it.stroke?colorFields('stroke',it.stroke)+`<div class="row">${F('線幅（mm）',N('sw',it.sw,0.05,'min="0"'))}</div>`:''}</div>`;
   }
+  if(it.type==='image')h+=imgLaySec(S.sel.page);
   const ar=S.alignRef||'margin';
   h+=`<div class="sec"><h3>整列</h3><div class="row">${F('基準',`<select id="aRef"><option value="margin"${ar==='margin'?' selected':''}>版面</option><option value="trim"${ar==='trim'?' selected':''}>仕上がり</option><option value="bleed"${ar==='bleed'?' selected':''}>塗り足し</option></select>`)}</div>
     <div class="btns">${[['l','左'],['c','左右中央'],['r','右'],['t','上'],['m','上下中央'],['b','下'],['fit','基準に合わせる']].map(([k,v])=>`<button data-al="${k}">${v}</button>`).join('')}</div></div>`;
   h+=`<div class="sec"><h3>重なり</h3><div class="btns"><button id="bFront">最前面へ</button><button id="bBack">最背面へ</button><button id="bDup">複製</button><button id="bDel">削除</button></div></div>`;
-  el.innerHTML=h;
+  el.innerHTML=h;if(it.type==='image')wireImgLay(S.sel.page);
   const pick=$('#bPick');if(pick)pick.onclick=()=>pickImage(it);
   if(it.type==='text'){
     $('#tLink').onclick=()=>{S.linkFrom=S.linkFrom?null:{page:S.sel.page,id:it.id};renderProps();if(S.linkFrom)toast('連結先のテキストフレームをクリック')};
@@ -3129,6 +3138,81 @@ function fitToGuide(idx){const d=S.doc,W=pw(d),H=d.trimH,E=1;let n=0;
     dirty(pi);n++}
   if(n){S.lmap=null;commit();renderProps()}
   toast(n?`${n}枚のスライドを余白に揃えました`:'揃えるものはありません')}
+/* 複数画像の配置パターン。画像を範囲（余白の枠、またはページ全体）に隙間なく／指定の隙間で敷き詰める。
+   パターンは分割の木：数値は1枚分のセル、[向き('r'横並び/'c'縦並び),比率,子...]。セルの順序＝木をたどる順＝読む順 */
+const IL_R=(...c)=>['r',c.map(()=>1),...c],IL_C=(...c)=>['c',c.map(()=>1),...c],IL_Rw=(w,...c)=>['r',w,...c],IL_Cw=(w,...c)=>['c',w,...c];
+const ILN=k=>Array(k).fill(1);
+function ilPatterns(n){
+  const P={
+    2:[IL_R(1,1),IL_C(1,1),IL_Rw([2,1],1,1),IL_Rw([1,2],1,1)],
+    3:[IL_R(1,1,1),IL_Rw([2,1],1,IL_C(1,1)),IL_Rw([1,2],IL_C(1,1),1),IL_Cw([3,2],1,IL_R(1,1)),IL_Cw([2,3],IL_R(1,1),1),IL_C(1,1,1)],
+    4:[IL_C(IL_R(1,1),IL_R(1,1)),IL_R(...ILN(4)),IL_Rw([3,1],1,IL_C(1,1,1)),IL_Rw([1,3],IL_C(1,1,1),1),IL_Cw([3,1],1,IL_R(1,1,1)),IL_Rw([1,2,1],IL_C(1,1),1,1)],
+    5:[IL_C(IL_R(1,1),IL_R(1,1,1)),IL_C(IL_R(1,1,1),IL_R(1,1)),IL_R(IL_C(1,1),1,IL_C(1,1)),IL_Rw([1,1],1,IL_C(IL_R(1,1),IL_R(1,1))),IL_Cw([3,2],1,IL_R(...ILN(4))),IL_R(...ILN(5))],
+    6:[IL_C(IL_R(1,1,1),IL_R(1,1,1)),IL_C(IL_R(1,1),IL_R(1,1),IL_R(1,1)),IL_Cw([2,1],IL_Rw([2,1],1,IL_C(1,1)),IL_R(1,1,1)),IL_Cw([3,2],IL_R(1,1),IL_R(...ILN(4))),IL_R(IL_C(1,1),IL_C(1,1),IL_C(1,1)),IL_R(...ILN(6))]
+  };
+  if(P[n])return P[n];
+  const out=[],grid=cols=>{const rows=Math.ceil(n/cols),a=[];let left=n;for(let r=0;r<rows;r++){const k=Math.ceil(left/(rows-r));a.push(IL_R(...ILN(k)));left-=k}return IL_C(...a)};
+  const c0=Math.ceil(Math.sqrt(n));for(const c of[c0,c0+1,c0-1])if(c>=2&&c<n&&!out.some(t=>JSON.stringify(t)===JSON.stringify(grid(c))))out.push(grid(c));
+  out.push(IL_R(...ILN(n)));return out}
+function ilCells(t,b,gap,out=[]){
+  if(!Array.isArray(t)){out.push(b);return out}
+  const [dir,w,...ch]=t,sum=w.reduce((a,v)=>a+v,0),hz=dir==='r',len=(hz?b.w:b.h)-gap*(ch.length-1);let p=hz?b.x:b.y;
+  ch.forEach((c,i)=>{const s=len*w[i]/sum;ilCells(c,hz?{x:p,y:b.y,w:s,h:b.h}:{x:b.x,y:p,w:b.w,h:s},gap,out);p+=s+gap});return out}
+/* 配置の対象：全面の背景・グループ内を除いた画像 */
+function ilImages(pg){const d=S.doc,W=pw(d),H=d.trimH;return pg.items.filter(it=>it.type==='image'&&!(it.src&&it.src.grp)&&!(it.w*it.h>=W*H*0.9))}
+function ilOrder(a){return a.slice().sort((p,q)=>Math.abs(p.y-q.y)<Math.min(p.h,q.h)*0.5?p.x-q.x:p.y-q.y)}
+/* 範囲：余白の枠から、画像の上下左右にある文字などの帯を除く。ページ全体は仕上がり（冊子は塗り足しまで） */
+function ilArea(pi,imgs,o){const d=S.doc,pg=d.pages[pi],W=pw(d),H=d.trimH;
+  if(o.area==='page'){const b=d.kind==='slide'?0:d.bleed;return{x:-b,y:-b,w:W+2*b,h:H+2*b}}
+  const g=margBox(pi);if(!imgs.length)return g;
+  const B={x0:Math.min(...imgs.map(i=>i.x)),y0:Math.min(...imgs.map(i=>i.y)),x1:Math.max(...imgs.map(i=>i.x+i.w)),y1:Math.max(...imgs.map(i=>i.y+i.h))};
+  let x0=g.x,y0=g.y,x1=g.x+g.w,y1=g.y+g.h;const sp=Math.max(o.gap,Math.min(W,H)*0.03),E=0.5;
+  for(const it of pg.items){if(imgs.includes(it)||it.w*it.h>=W*H*0.9||it.x+it.w<=0||it.y+it.h<=0||it.x>=W||it.y>=H)continue;
+    if(it.y+it.h<=B.y0+E)y0=Math.max(y0,it.y+it.h+sp);else if(it.y>=B.y1-E)y1=Math.min(y1,it.y-sp);
+    else if(it.x+it.w<=B.x0+E)x0=Math.max(x0,it.x+it.w+sp);else if(it.x>=B.x1-E)x1=Math.min(x1,it.x-sp)}
+  return x1-x0<g.w*0.2||y1-y0<g.h*0.2?g:{x:x0,y:y0,w:x1-x0,h:y1-y0}}
+function ilPlace(pg,pi,k,o){const imgs=ilOrder(ilImages(pg)),t=ilPatterns(imgs.length)[k];if(!t)return;
+  const cells=ilCells(t,ilArea(pi,imgs,o),o.gap);
+  imgs.forEach((it,i)=>{const c=cells[i];it.x=r1(c.x);it.y=r1(c.y);it.w=r1(Math.max(1,c.w));it.h=r1(Math.max(1,c.h));it.fit='cover';delete it.ox;delete it.oy;delete it.zoom});
+  pg.ilay={n:imgs.length,k,gap:o.gap,area:o.area}}
+function ilOpts(pg){const l=pg.ilay||{};return{gap:l.gap!=null?l.gap:(S.ilGap||0),area:l.area||S.ilArea||'margin'}}
+function applyImgLayout(pi,k,o){const pg=S.doc.pages[pi];ilPlace(pg,pi,k,o);dirty(pi);commit();renderProps()}
+/* 順序の入れ替え：2枚の画像の枠を入れ替える */
+function swapImgs(pi,a,b){const pg=S.doc.pages[pi],A=pg.items.find(i=>i.id===a),B=pg.items.find(i=>i.id===b);if(!A||!B||A===B)return;
+  for(const k of['x','y','w','h'])[A[k],B[k]]=[B[k],A[k]];for(const it of[A,B]){delete it.ox;delete it.oy}
+  dirty(pi);commit();renderProps()}
+function imgLaySec(pi){const pg=S.doc.pages[pi],imgs=ilOrder(ilImages(pg)),n=imgs.length;if(n<2)return'';
+  const o=ilOpts(pg),cur=pg.ilay&&pg.ilay.n===n?pg.ilay.k:-1;
+  return `<div class="sec" id="ilSec"><h3>画像の配置</h3>
+    <div class="row">${F('範囲',`<select id="ilArea"><option value="margin"${o.area==='margin'?' selected':''}>余白の枠</option><option value="page"${o.area==='page'?' selected':''}>ページ全体</option></select>`)}${F('隙間（mm）',`<input type="number" id="ilGap" value="${o.gap}" step="0.5" min="0">`)}</div>
+    <div class="lays ilpat">${ilPatterns(n).map((_,k)=>`<button type="button" class="lay${k===cur?' on':''}" data-il="${k}" aria-label="パターン ${k+1}"><canvas></canvas></button>`).join('')}</div>
+    <h3>順序</h3><div class="ilord">${imgs.map((it,i)=>`<button type="button" data-iid="${it.id}" aria-label="${i+1}"><canvas></canvas><span>${i+1}</span></button>`).join('')}</div></div>`}
+function ilThumb(c,pg,wpx){const d=S.doc;if(d.kind==='slide'){drawSlideThumb(c,pg,slideTheme(pg),wpx);return}
+  const W=pw(d),H=d.trimH,dpr=window.devicePixelRatio||1;c.width=Math.round(wpx*dpr);c.height=Math.round(wpx*H/W*dpr);c.style.aspectRatio=W+'/'+H;
+  const ctx=c.getContext('2d'),s=c.width/W;ctx.setTransform(s,0,0,s,0,0);
+  ctx.fillStyle='#ffffff';ctx.fillRect(0,0,W,H);for(const it of pg.items)drawItem(ctx,it,null,false);for(const it of pg.items)lcache.delete(it.id)}
+function wireImgLay(pi){const sec=$('#ilSec');if(!sec)return;const pg=S.doc.pages[pi],o=ilOpts(pg);
+  const draw=()=>{const oo=ilOpts(pg);sec.querySelectorAll('[data-il]').forEach(b=>{const p=jclone(pg);ilPlace(p,pi,+b.dataset.il,oo);ilThumb(b.querySelector('canvas'),p,120)})};
+  draw();
+  const re=()=>{if(pg.ilay&&pg.ilay.n===ilImages(pg).length)applyImgLayout(pi,pg.ilay.k,ilOpts(pg));else draw()};
+  $('#ilArea').onchange=e=>{S.ilArea=e.target.value;if(pg.ilay)pg.ilay.area=e.target.value;re()};
+  $('#ilGap').onchange=e=>{const v=Math.max(0,+e.target.value||0);S.ilGap=v;if(pg.ilay)pg.ilay.gap=v;re()};
+  sec.querySelector('.ilpat').onclick=e=>{const b=e.target.closest('[data-il]');if(b)applyImgLayout(pi,+b.dataset.il,ilOpts(pg))};
+  /* 順序：ドラッグして別の画像に重ねる、または2つを続けて押すと入れ替わる */
+  const ord=sec.querySelector('.ilord'),dpr=window.devicePixelRatio||1;
+  ord.querySelectorAll('[data-iid]').forEach(b=>{const it=pg.items.find(i=>i.id===b.dataset.iid),c=b.querySelector('canvas'),im=it&&S.images[it.imageId];
+    c.width=c.height=Math.round(48*dpr);const x=c.getContext('2d');x.fillStyle='#ffffff';x.fillRect(0,0,c.width,c.height);
+    if(im&&im.img){const cr=it.crop||{l:0,t:0,r:0,b:0},sw=im.w*(1-cr.l-cr.r),sh=im.h*(1-cr.t-cr.b),m=Math.min(sw,sh);x.drawImage(im.img,im.w*cr.l+(sw-m)/2,im.h*cr.t+(sh-m)/2,m,m,0,0,c.width,c.height)}});
+  let src=null,moved=false,sx=0,sy=0,pick=S.ilPick&&ord.querySelector(`[data-iid="${S.ilPick}"]`);if(pick)pick.classList.add('on');else S.ilPick=null;
+  const at=e=>{const el=document.elementFromPoint(e.clientX,e.clientY);return el&&el.closest&&el.closest('.ilord [data-iid]')};
+  ord.onpointerdown=e=>{const b=e.target.closest('[data-iid]');if(!b)return;src=b;moved=false;sx=e.clientX;sy=e.clientY;try{ord.setPointerCapture(e.pointerId)}catch(_){}};
+  ord.onpointermove=e=>{if(!src)return;if(!moved&&Math.hypot(e.clientX-sx,e.clientY-sy)>4){moved=true;src.classList.add('drag')}
+    if(moved){ord.querySelectorAll('.tgt').forEach(x=>x.classList.remove('tgt'));const t=at(e);if(t&&t!==src)t.classList.add('tgt')}};
+  ord.onpointerup=e=>{if(!src)return;const s=src;src=null;s.classList.remove('drag');ord.querySelectorAll('.tgt').forEach(x=>x.classList.remove('tgt'));
+    if(moved){const t=at(e);if(t&&t!==s){S.ilPick=null;swapImgs(pi,s.dataset.iid,t.dataset.iid)}return}
+    if(S.ilPick&&S.ilPick!==s.dataset.iid){const a=S.ilPick;S.ilPick=null;swapImgs(pi,a,s.dataset.iid);return}
+    S.ilPick=S.ilPick===s.dataset.iid?null:s.dataset.iid;ord.querySelectorAll('.on').forEach(x=>x.classList.remove('on'));if(S.ilPick)s.classList.add('on')};
+  ord.onpointercancel=()=>{if(src)src.classList.remove('drag');src=null}}
 function snapToLayout(idx){const d=S.doc;let n=0;
   for(const pi of idx){const pg=d.pages[pi];let hit=false;
     for(const it of pg.items){const s=it.src,L=s&&s.lay;if(!L||s.kind==='pic')continue;
@@ -3139,11 +3223,12 @@ function snapToLayout(idx){const d=S.doc;let n=0;
   toast(n?`${n}個の枠をレイアウトの位置に戻しました`:'レイアウトと違う位置の枠はありません')}
 function renderSlideProps(el){
   const d=S.doc,pg=d.pages[S.page];
-  el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1} のレイアウト案</h3><div class="lays sugs" id="laySug">${sugBtns(S.page)}</div></div>
+  el.innerHTML=`<div class="sec"><h3>スライド ${S.page+1} のレイアウト案</h3><div class="lays sugs" id="laySug">${sugBtns(S.page)}</div></div>${imgLaySec(S.page)}
     <div class="sec"><h3>すべてのレイアウト</h3><div class="lays" id="layCur">${layBtns(pg.layout)}</div></div>${slideBgSec(pg)}`+
     `<div class="sec"><h3>余白に揃える</h3><div class="row"><button id="fitG">このスライド</button><button id="fitGAll">すべてのスライド</button></div></div>`+
     (d.pptx?`<div class="sec"><h3>文字枠</h3><div class="row"><button id="phSnap">レイアウトの位置に戻す</button><button id="phSnapAll">すべてのスライド</button></div></div>`:`<div class="sec"><h3>後ろに追加</h3><div class="lays" id="layAdd">${layBtns()}</div></div>`);
   drawLayThumbs(el,slideTheme(pg));drawSugThumbs(el,S.page);
+  wireImgLay(S.page);
   $('#fitG').onclick=()=>fitToGuide([S.page]);$('#fitGAll').onclick=()=>fitToGuide(d.pages.map((_,i)=>i));
   if(d.pptx){$('#phSnap').onclick=()=>snapToLayout([S.page]);$('#phSnapAll').onclick=()=>snapToLayout(d.pages.map((_,i)=>i))}
   $('#laySug').onclick=e=>{const b=e.target.closest('.lay');if(b&&b.dataset.lay!==pg.layout)setLayout(S.page,b.dataset.lay)};
