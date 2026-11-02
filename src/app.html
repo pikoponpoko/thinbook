@@ -42,7 +42,9 @@ input,select,textarea{background:var(--bg);border:1px solid var(--field);border-
 input[type=number],select{min-height:28px}
 input[type=number]{font-family:var(--num);font-variant-numeric:tabular-nums}
 #app{display:grid;grid-template-columns:172px minmax(0,1fr) 280px;grid-template-rows:44px minmax(0,1fr);height:100%}
-header{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding-block:0;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);background:var(--bg);min-width:0}
+header{grid-column:1/-1;display:flex;align-items:center;gap:8px;padding-block:0;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);background:var(--bg);min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+header>:not(#docInfo){flex:none}
+@media (max-width:1480px){.logo{display:none}}
 .logo{font-weight:700;font-size:16px;letter-spacing:.02em}
 .grp{display:flex;gap:4px;align-items:center}
 #zoomLbl{font-family:var(--num);min-width:44px;text-align:center}
