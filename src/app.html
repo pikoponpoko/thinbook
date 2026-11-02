@@ -542,6 +542,8 @@ function margBox(i){const d=S.doc,m=d.margins,W=pw(d),H=d.trimH;
 function textItem(o){const h=S.doc&&S.doc.binding==='left'&&S.doc.kind!=='slide';return Object.assign({id:uid(),type:'text',x:0,y:0,w:50,h:50,text:'',font:h?'Noto Sans JP':'Noto Serif JP',weight:400,size:9,leading:h?170:175,track:h?20:0,dir:S.doc&&S.doc.binding==='left'?'h':'v',align:'start',color:{c:0,m:0,y:0,k:100}},o)}
 function rectItem(o){return Object.assign({id:uid(),type:'rect',x:0,y:0,w:30,h:30,fill:{c:0,m:0,y:0,k:20},stroke:null,sw:0.3},o)}
 function videoItem(o){return Object.assign({id:uid(),type:'video',x:0,y:0,w:80,h:45,mediaId:null,posterId:null,fit:'contain'},o)}
+function cropOf(el){const sr=el&&el.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/main','srcRect')[0];if(!sr)return{};
+  const f=n=>Math.max(0,Math.min(0.99,(+sr.getAttribute(n)||0)/100000)),c={l:f('l'),t:f('t'),r:f('r'),b:f('b')};return c.l||c.t||c.r||c.b?{crop:c}:{}}
 function imageItem(o){return Object.assign({id:uid(),type:'image',x:0,y:0,w:40,h:40,imageId:null,fit:'cover'},o)}
 
 function sampleDoc(){
@@ -615,10 +617,39 @@ function layout(it){
   while(f&&g++<9999){const nx=nextOf(f);const L=layoutText(styled(f),input,!nx);if(f.id===it.id)return L;input=L.rest;f=nx}
   return layoutText(it,'',true);
 }
+/* 段落ごとに文字サイズ・太さが違う横組みテキスト（PPTXから読み込んだ本文など）。it.ps[k]={r:基準サイズに対する倍率,b:太字} */
+function paraStyle(it,k){const q=it.ps&&it.ps[k];if(!q)return it;return{...it,size:it.size*(q.r||1),weight:q.b==null?it.weight:q.b?700:400}}
+function layoutRich(it,text,last){
+  const lim=it.w,lines=[];
+  String(text).split('\n').forEach((para,k)=>{const st=paraStyle(it,k),sz=st.size*PT,pc=[...para],us=units(pc,st,false);let cur=[],pos=0;
+    const push=()=>{cur.sz=sz;cur.w=st.weight;lines.push(cur);cur=[];pos=0};
+    for(const u of us){
+      if(pos+u.adv>lim+1e-6&&cur.length){
+        if(HANG.has(u.s)&&!cur.hung){cur.push(u);cur.hung=true;push();continue}
+        const carry=[];
+        if(NO_START.has(u.s[0])&&cur.length>1)carry.unshift(cur.pop());
+        while(cur.length>1&&NO_END.has(cur[cur.length-1].s))carry.unshift(cur.pop());
+        push();for(const c of carry){cur.push(c);pos+=c.adv}
+      }
+      cur.push(u);pos+=u.adv}
+    push()});
+  const glyphs=[];let top=0,n=0,bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9,used=0;
+  for(const ln of lines){if(top+ln.sz>it.h+1e-6&&n)break;
+    let len=0;for(const u of ln)len+=u.adv;if(ln.hung)len-=ln[ln.length-1].adv;
+    let p=it.align==='center'?(lim-len)/2:it.align==='end'?lim-len:0;if(len>lim)p=0;
+    const cy=top+ln.sz/2;
+    for(const u of ln){const g={s:u.s,x:p+u.adv/2,y:cy,rot:false,dx:0,dy:0,sx:1,fs:ln.sz,fw:ln.w};
+      if(u.s.trim()){bx0=Math.min(bx0,g.x-ln.sz/2);bx1=Math.max(bx1,g.x+ln.sz/2);by0=Math.min(by0,top);by1=Math.max(by1,top+ln.sz)}
+      glyphs.push(g);p+=u.adv}
+    used=top+ln.sz;top+=ln.sz*it.leading/100;n++}
+  if(n&&(it.anchor==='ctr'||it.anchor==='b')){const off=Math.max(0,it.anchor==='ctr'?(it.h-used)/2:it.h-used);if(off){for(const g of glyphs)g.y+=off;if(by1>by0){by0+=off;by1+=off}}}
+  return{glyphs,rest:'',overflow:last&&n<lines.length,bbox:bx1>bx0?{x0:bx0,y0:by0,x1:bx1,y1:by1}:null};
+}
 function layoutText(it,text,last){
   const cols=Math.max(1,(it.cols|0)||1),gap=it.gap||0;
-  const key=[text,it.font,it.weight,it.size,it.leading,it.track,it.dir,it.align,it.w,it.h,cols,gap,last,it.anchor].join('\u0001');
+  const key=[text,it.font,it.weight,it.size,it.leading,it.track,it.dir,it.align,it.w,it.h,cols,gap,last,it.anchor,it.ps?JSON.stringify(it.ps):''].join('\u0001');
   const old=lcache.get(it.id);if(old&&old.key===key)return old;
+  if(it.ps&&it.ps.length&&it.dir!=='v'&&cols===1){const L=layoutRich(it,text,last);L.key=key;lcache.set(it.id,L);return L}
   const V=it.dir==='v',sz=it.size*PT,pitch=Math.max(0.1,sz*it.leading/100);
   const bw=V?it.w:(it.w-gap*(cols-1))/cols,bh=V?(it.h-gap*(cols-1))/cols:it.h;
   const lim=V?bh:bw,across=V?bw:bh;
@@ -686,14 +717,16 @@ function sepCanvas(id,ch){
 function drawText(ctx,it,ch,preview){
   it=styled(it);const L=layout(it),sz=it.size*PT,K=100;
   needFont(it.font,it.weight,storyText(it).slice(0,4000));
+  if(it.ps)for(const q of it.ps)if(q&&q.b!=null&&(q.b?700:400)!==it.weight)needFont(it.font,q.b?700:400,storyText(it).slice(0,4000));
   ctx.save();ctx.fillStyle=col(it.color,ch);ctx.textAlign='center';ctx.textBaseline='middle';
-  ctx.font=`${it.weight} ${sz*K}px "${it.font}", serif`;
+  const F0=`${it.weight} ${sz*K}px "${it.font}", serif`;ctx.font=F0;let cf=F0;
   for(const g of L.glyphs){
     if(!g.s.trim())continue;
+    if(g.fs){const f=`${g.fw} ${g.fs*K}px "${it.font}", serif`;if(f!==cf){ctx.font=f;cf=f}}
     ctx.save();ctx.translate(it.x+g.x,it.y+g.y);ctx.scale(1/K,1/K);
     if(g.rot)ctx.rotate(Math.PI/2);
     if(g.sx!==1)ctx.scale(g.sx,1);
-    ctx.fillText(g.s,g.dx*sz*K,g.dy*sz*K);ctx.restore();
+    ctx.fillText(g.s,g.dx*(g.fs||sz)*K,g.dy*(g.fs||sz)*K);ctx.restore();
   }
   ctx.restore();
   if(preview&&L.overflow){const q=2.2;ctx.fillStyle=TOK.danger;ctx.fillRect(it.x+it.w-q,it.y+it.h-q,q,q)}
@@ -707,10 +740,12 @@ function drawItem(ctx,it,ch,preview){
   }else if(it.type==='image'){
     const im=it.imageId&&S.images[it.imageId];if(im&&im.pending)return;
     if(im&&im.img){
-      const sc=imgScale(it,im),dw=it.fit==='stretch'?it.w:im.w*sc,dh=it.fit==='stretch'?it.h:im.h*sc;
+      /* crop：PPTXの srcRect（左上右下の切り取り率）。切り取った範囲を1枚の画像として扱う */
+      const cr=it.crop,sx=cr?im.w*cr.l:0,sy=cr?im.h*cr.t:0,sw=cr?Math.max(1,im.w*(1-cr.l-cr.r)):im.w,sh=cr?Math.max(1,im.h*(1-cr.t-cr.b)):im.h;
+      const sc=imgScale(it,{w:sw,h:sh}),dw=it.fit==='stretch'?it.w:sw*sc,dh=it.fit==='stretch'?it.h:sh*sc;
       ctx.save();ctx.beginPath();ctx.rect(it.x,it.y,it.w,it.h);ctx.clip();
       ctx.imageSmoothingQuality='high';
-      ctx.drawImage(ch?sepCanvas(it.imageId,ch):im.img,it.x+(it.w-dw)/2+(it.ox||0),it.y+(it.h-dh)/2+(it.oy||0),dw,dh);ctx.restore();
+      ctx.drawImage(ch?sepCanvas(it.imageId,ch):im.img,sx,sy,sw,sh,it.x+(it.w-dw)/2+(it.ox||0),it.y+(it.h-dh)/2+(it.oy||0),dw,dh);ctx.restore();
     }else if(preview){
       ctx.save();ctx.strokeStyle=TOK.sub;ctx.lineWidth=0.2;ctx.beginPath();ctx.rect(it.x,it.y,it.w,it.h);
       ctx.moveTo(it.x,it.y);ctx.lineTo(it.x+it.w,it.y+it.h);ctx.moveTo(it.x+it.w,it.y);ctx.lineTo(it.x,it.y+it.h);ctx.stroke();ctx.restore();
@@ -3540,11 +3575,11 @@ async function importPPTXInner(file){
           if(!mid){const e=vr.target.split('.').pop().toLowerCase(),nm=vr.target.split('/').pop(),type=VMIME[e]||'video/mp4';mid=uid();vmedia[mid]={blob:null,size:map.get(vr.target).usize,name:nm,type,part:vr.target};vIds.set(vr.target,mid)}
           const tr=pm&&pm.getElementsByTagNameNS(P14,'trim')[0],play={start:'none'};if(tr){if(tr.getAttribute('st'))play.st=+tr.getAttribute('st')/1000;if(tr.getAttribute('end'))play.end=+tr.getAttribute('end')/1000}
           W.out.push(tag(videoItem({...box,mediaId:mid,posterId:imageId,fit:'stretch',play}),{kind:'pic',o:{...box,imageId:mid}}));continue}
-        W.out.push(tag(imageItem({...box,imageId,fit:'stretch'}),{kind:'pic',o:{...box,imageId}}));continue}
+        W.out.push(tag(imageItem({...box,imageId,fit:'stretch',...cropOf(el)}),{kind:'pic',o:{...box,imageId}}));continue}
       const spPr=kid(el,'spPr',NP);let fl=color(C,kid(spPr,'solidFill'));const lnEl=kid(spPr,'ln'),st=lnEl&&!kid(lnEl,'noFill')?color(C,kid(lnEl,'solidFill')):null;
       if(!fl&&!kid(spPr,'noFill')){const sty=kid(el,'style',NP),fr=sty&&kid(sty,'fillRef');if(fr&&fr.getAttribute('idx')!=='0')fl=color(C,fr)}
       const bf=kid(spPr,'blipFill');
-      if(bf){const bl=kid(bf,'blip'),r=bl&&W.rels[bl.getAttributeNS(NR,'embed')];if(r&&r.target&&map.get(r.target)&&IMG.test(r.target)){const imageId=await loadMedia(r.target);if(imageId)W.out.push(tag(imageItem({...box,imageId,fit:'stretch'}),{kind:'fill',hasText:true,o:{...box}}))}}
+      if(bf){const bl=kid(bf,'blip'),r=bl&&W.rels[bl.getAttributeNS(NR,'embed')];if(r&&r.target&&map.get(r.target)&&IMG.test(r.target)){const imageId=await loadMedia(r.target);if(imageId)W.out.push(tag(imageItem({...box,imageId,fit:'stretch',...cropOf(bf)}),{kind:'fill',hasText:true,o:{...box}}))}}
       const tb=kid(el,'txBody',NP),paras=kids(tb,'p');
       const text=paras.map(p=>[...p.children].map(r=>r.localName==='br'?'\n':(r.localName==='r'||r.localName==='fld')?(kid(r,'t')||{}).textContent||'':'').join('')).join('\n');
       if(fl||st)W.out.push(tag(rectItem({...box,fill:fl,stroke:st,sw:lnEl&&lnEl.getAttribute('w')?+lnEl.getAttribute('w')/EMU:0.3}),{kind:'fill',hasText:!!text.trim(),o:{...box}}));
@@ -3571,6 +3606,12 @@ async function importPPTXInner(file){
       const anchor=(bp&&bp.getAttribute('anchor'))||(isTitle&&ph.type!=='ctrTitle'?'ctr':'t');
       const it=textItem({x:box.x+ins.l,y:box.y+ins.t,w:Math.max(1,box.w-ins.l-ins.r),h:Math.max(1,box.h-ins.t-ins.b),text,font,size,weight:bold?700:400,
         leading:clamp(leading,80,400),dir:vert?'v':'h',align:al==='ctr'?'center':al==='r'?'end':'start',anchor:anchor==='ctr'?'ctr':anchor==='b'?'b':'t',color:col});
+      /* 段落ごとの文字サイズ・太字（先頭の文字の書式で代表させる）。全段落同じなら持たない */
+      if(!vert&&paras.length>1){const base=size/scale,pb=bold;
+        const ps=paras.map(p=>{const r0=[...p.children].find(r=>r.localName==='r'||r.localName==='fld'),rp=(r0&&kid(r0,'rPr'))||kid(p,'endParaRPr');
+          const z=rp&&rp.getAttribute('sz')?+rp.getAttribute('sz')/100:base,b=rp&&rp.getAttribute('b')!=null?rp.getAttribute('b')==='1':pb;
+          return{r:Math.round(z/base*1000)/1000,b:b?1:0}});
+        if(ps.some(q=>q.r!==1||!!q.b!==!!pb))it.ps=ps}
       W.out.push(tag(it,{kind:'text',ins,scale,fref,o:{x:it.x,y:it.y,w:it.w,h:it.h,text,size,weight:it.weight,color:cHex(col),font}}));
       }catch(err){errors.push(err)}
     }
@@ -3648,7 +3689,7 @@ function setRunStyle(tb,it,s){
   const doc=tb.ownerDocument;
   for(const r of tb.getElementsByTagNameNS(NA,'r'))if(!kid(r,'rPr'))r.insertBefore(doc.createElementNS(NA,'a:rPr'),r.firstChild);
   for(const rp of [...tb.getElementsByTagNameNS(NA,'rPr'),...tb.getElementsByTagNameNS(NA,'endParaRPr')]){
-    if(ch.size)rp.setAttribute('sz',clamp(Math.round(it.size/(s.scale||1)*100),100,400000));
+    if(ch.size)rp.setAttribute('sz',clamp(Math.round(it.ps&&rp.getAttribute('sz')?+rp.getAttribute('sz')*it.size/o.size:it.size/(s.scale||1)*100),100,400000));
     if(ch.weight)rp.setAttribute('b',it.weight>=700?'1':'0');
     if(ch.color){for(const f of ['noFill','gradFill','blipFill','pattFill','grpFill']){const x=kid(rp,f);if(x)rp.removeChild(x)}
       rprSet(rp,'solidFill',dd=>{const f=dd.createElementNS(NA,'a:solidFill'),c=dd.createElementNS(NA,'a:srgbClr');c.setAttribute('val',cHex(it.color));f.appendChild(c);return f})}
