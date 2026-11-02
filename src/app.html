@@ -3695,12 +3695,12 @@ async function importPPTXInner(file){
   const xfOf=sp=>{const pr=kid(sp,'spPr',NP)||kid(sp,'grpSpPr',NP),xf=pr&&kid(pr,'xfrm');if(!xf)return null;const o=kid(xf,'off'),e=kid(xf,'ext');if(!o||!e)return null;
     return{x:+o.getAttribute('x'),y:+o.getAttribute('y'),w:+e.getAttribute('cx'),h:+e.getAttribute('cy'),flat:xf}};
   const TF0=(x,y,w,h)=>({x:r1(x/EMU),y:r1(y/EMU),w:r1(w/EMU),h:r1(h/EMU)});
-  /* 余白ガイドは、最初のマスターのタイトルと本文のプレースホルダーを囲む範囲に合わせる（PowerPointのレイアウト枠と揃える） */
+  /* 余白ガイドは、最初のマスターのタイトルと本文のプレースホルダーを囲む範囲に合わせる。上下・左右はそれぞれ狭いほうに揃えて中央に置く */
   {const me=pres.getElementsByTagNameNS(NP,'sldMasterId')[0],mp=me&&(prel[me.getAttributeNS(NR,'id')]||{}).target,mx=mp&&await xml(mp);
     if(mx){let x0=1e15,y0=1e15,x1=-1e15,y1=-1e15;
       for(const sp of mx.getElementsByTagNameNS(NP,'sp')){const p=phOf(sp);if(!p||!/^(title|body)$/.test(p.type))continue;const g=xfOf(sp);if(!g)continue;
         x0=Math.min(x0,g.x);y0=Math.min(y0,g.y);x1=Math.max(x1,g.x+g.w);y1=Math.max(y1,g.y+g.h)}
-      if(x1>x0&&y1>y0&&x0>=0&&y0>=0&&x1<=cx&&y1<=cy){const side=r1(Math.min(x0,cx-x1)/EMU);d.margins={top:r1(y0/EMU),bottom:r1((cy-y1)/EMU),inner:side,outer:side}}}}
+      if(x1>x0&&y1>y0&&x0>=0&&y0>=0&&x1<=cx&&y1<=cy){const side=r1(Math.min(x0,cx-x1)/EMU),tb=r1(Math.min(y0,cy-y1)/EMU);d.margins={top:tb,bottom:tb,inner:side,outer:side}}}}
   // W = {C, rels, out, ids|null(locked)}
   const walk=async(W,tree,tf,inGrp)=>{
     const {C}=W;
