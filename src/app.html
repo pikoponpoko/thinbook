@@ -2541,8 +2541,8 @@ async function startPres(){
     <button id="p-back" class="pback">発表者ビュー</button>`;
   $('#p-hide').value=PRS.hide;
   $('#p-tl').innerHTML=PRS.budget.map((b,k)=>`<i data-k="${k}" style="flex-grow:${b}" title="${k+1}: ${fmt(b)}"></i>`).join('')+'<em id="p-mk"></em>';
-  $('#p-prev').onclick=()=>pgo(PRS.i-1);$('#p-next').onclick=()=>pgo(PRS.i+1);
-  $('#p-cur').onclick=()=>pgo(PRS.i+1);
+  $('#p-prev').onclick=pprev;$('#p-next').onclick=pnext;
+  $('#p-cur').onclick=pnext;
   $('#p-pause').onclick=togglePause;$('#p-only').onclick=()=>setOnly(true);$('#p-back').onclick=()=>setOnly(false);
   $('#p-fs').onclick=()=>{if(document.fullscreenElement)document.exitFullscreen();else if(el.requestFullscreen)el.requestFullscreen().catch(()=>toast('全画面にできませんでした'));else toast('全画面にできませんでした')};
   $('#p-win').onclick=openAudience;$('#p-end').onclick=endPres;
@@ -2555,24 +2555,64 @@ async function startPres(){
   PRS.ro=new ResizeObserver(()=>drawPres());PRS.ro.observe($('#p-cur'));PRS.ro.observe($('#p-nextw'));
   if(!PRS.ac){try{PRS.ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}
   if(PRS.ac&&PRS.ac.state==='suspended')PRS.ac.resume();
-  drawPres();PRS.tick=setInterval(tick,200);tick();
+  PRS.vids=[];PRS.vurl={};pvInit();drawPres();PRS.tick=setInterval(tick,200);tick();
   if(c.media!=='none')await startMedia(c.media,c.lang);
 }
 function pnow(){return PRS.paused?PRS.acc:PRS.acc+(performance.now()-PRS.t0)/1000}
 function drawPres(){
   if(!PRS.on)return;const cur=$('#p-cur'),nx=$('#p-nextw');
   presDraw(cur.firstChild,PRS.blank?-1:PRS.i,cur.clientWidth,cur.clientHeight);
-  presDraw(nx.firstChild,PRS.i+1,nx.clientWidth,nx.clientHeight);
-  $('#p-nextw').classList.toggle('none',PRS.i+1>=S.doc.pages.length);
+  const ni=pstep(PRS.i,1);presDraw(nx.firstChild,ni,nx.clientWidth,nx.clientHeight);
+  $('#p-nextw').classList.toggle('none',ni>=S.doc.pages.length);
   $('#pt-no').textContent=(PRS.i+1)+' / '+S.doc.pages.length;
   $('#pt-slb').textContent=' / '+fmt(PRS.budget[PRS.i]);
   $$('#p-tl i').forEach((x,k)=>{x.className=k<PRS.i?'done':k===PRS.i?'cur':''});
-  drawNotes();drawAudience();
+  drawNotes();drawAudience();pvLayout();
+  clearTimeout(PRS.warm);PRS.warm=setTimeout(()=>{if(!PRS.on)return;const k=pstep(ni,1);if(k<S.doc.pages.length)presDraw(document.createElement('canvas'),k,nx.clientWidth,nx.clientHeight)},60);
+}
+/* 非表示スライドは発表時に飛ばす（PowerPointと同じ） */
+function pstep(i,dir){const P=S.doc.pages;let j=i+dir;while(j>=0&&j<P.length&&P[j].hidden)j+=dir;return j}
+function pnext(){if(pvClickStart())return;pgo(pstep(PRS.i,1))}
+function pprev(){pgo(pstep(PRS.i,-1))}
+/* 発表中の動画：開始（自動／クリック時）、トリミング、音量、ループを .pptx の設定どおりに再生 */
+function pvInit(){const pg=S.doc.pages[PRS.i];PRS.vids=(pg?pg.items:[]).filter(it=>it.type==='video'&&it.mediaId&&S.media[it.mediaId]).map(it=>({it,els:[],on:false}));
+  for(const v of PRS.vids)if((v.it.play||{}).start==='auto')pvStart(v)}
+function pvReset(){for(const v of PRS.vids||[])for(const e of v.els)if(e){e.pause();e.remove()}PRS.vids=[]}
+function pvClickStart(){const v=(PRS.vids||[]).find(v=>!v.on&&(v.it.play||{}).start==='click');if(!v)return false;pvStart(v);return true}
+function pvMaster(v){return v.els[1]||v.els[0]}
+async function pvStart(v){
+  if(v.on)return;v.on=true;const m=S.media[v.it.mediaId];let url=PRS.vurl[v.it.mediaId];
+  if(!url){try{url=PRS.vurl[v.it.mediaId]=URL.createObjectURL(await mediaBlob(m))}catch(e){toast('動画を読み込めませんでした');return}}
+  if(!PRS.on||!PRS.vids.includes(v))return;v.url=url;pvLayout();
+}
+function pvEl(v,doc,main){const p=v.it.play||{},e=doc.createElement('video');e.src=v.url;e.playsInline=true;e.preload='auto';
+  e.style.cssText='position:fixed;z-index:2;object-fit:fill;background:#000;cursor:pointer;margin:0';e.volume=p.vol==null?1:p.vol;
+  const st=p.st||0,from=!main&&v.els[0]&&v.els[0].readyState>0?v.els[0]:null;e.addEventListener('loadedmetadata',()=>{
+    if(from){e.currentTime=from.currentTime;if(!from.paused)e.play().catch(()=>{});return}
+    if(st)e.currentTime=st;if(e===pvMaster(v))e.play().catch(()=>{});else pvSync(v)},{once:true});
+  e.addEventListener('timeupdate',()=>{if(p.end&&e.currentTime>=p.end){if(p.loop)e.currentTime=st;else if(!e.paused)e.pause()}});
+  e.addEventListener('ended',()=>{if(p.loop){e.currentTime=st;e.play().catch(()=>{})}});
+  e.addEventListener('error',()=>{if(main)toast('この動画はこのブラウザで再生できません：'+(S.media[v.it.mediaId].name||''))});
+  e.addEventListener('play',()=>pvSync(v));e.addEventListener('pause',()=>pvSync(v));e.addEventListener('seeked',()=>pvSync(v));
+  e.onclick=ev=>{ev.stopPropagation();const M=pvMaster(v);if(M.paused){if(p.end&&M.currentTime>=p.end-0.05)M.currentTime=st;M.play().catch(()=>{})}else M.pause()};
+  return e}
+function pvSync(v){const M=pvMaster(v);for(const e of v.els){if(!e||e===M)continue;if(Math.abs(e.currentTime-M.currentTime)>0.3)e.currentTime=M.currentTime;if(M.paused!==e.paused){if(M.paused)e.pause();else e.play().catch(()=>{})}}}
+function pvPlace(e,cv,it,hide){const r=cv.getBoundingClientRect(),s=r.width/pw(S.doc);
+  if(hide||!r.width){e.style.display='none';return}e.style.display='';
+  Object.assign(e.style,{left:r.left+it.x*s+'px',top:r.top+it.y*s+'px',width:it.w*s+'px',height:it.h*s+'px'})}
+function pvLayout(){
+  const w=PRS.popup&&!PRS.popup.closed?PRS.popup:null,cv=$('#p-cur canvas'),pc=w&&w.document.querySelector('canvas');
+  for(const v of PRS.vids||[]){if(!v.url)continue;
+    if(!v.els[0]){v.els[0]=pvEl(v,document,true);$('#pres').append(v.els[0])}
+    if(w&&!v.els[1]){v.els[1]=pvEl(v,w.document,false);w.document.body.append(v.els[1])}
+    if(!w&&v.els[1]){v.els[1].remove();v.els[1]=null}
+    v.els[0].muted=!!(v.it.play||{}).mute||!!v.els[1];if(v.els[1])v.els[1].muted=!!(v.it.play||{}).mute;
+    pvPlace(v.els[0],cv,v.it,PRS.blank);if(v.els[1])pvPlace(v.els[1],pc,v.it,PRS.blank);pvSync(v)}
 }
 function drawNotes(){const c=presCfg(),n=$('#p-notes');n.style.fontSize=c.noteSize+'px';n.lang=c.lang;n.innerHTML=hideHTML(noteOf(PRS.i),PRS.hide,c.lang)}
 function pgo(j){
   if(j<0||j>=S.doc.pages.length||j===PRS.i)return;
-  const t=pnow();PRS.dur[PRS.i]+=t-PRS.slideT;PRS.slideT=t;PRS.i=j;PRS.marks.push([j,t]);PRS.blank=false;drawPres();tick();
+  const t=pnow();PRS.dur[PRS.i]+=t-PRS.slideT;PRS.slideT=t;PRS.i=j;PRS.marks.push([j,t]);PRS.blank=false;pvReset();pvInit();drawPres();tick();
 }
 function togglePause(){
   if(PRS.paused){PRS.t0=performance.now();PRS.paused=false;if(PRS.rec&&PRS.rec.state==='paused')PRS.rec.resume()}
@@ -2593,6 +2633,7 @@ function tick(){
   if(c.chime&&!PRS.warned1&&rem<=60&&PRS.target>90){PRS.warned1=true;beep(880,1)}
   if(c.chime&&!PRS.warned0&&rem<=0){PRS.warned0=true;beep(660,3)}
   $('#p-pause').classList.toggle('on',PRS.paused);
+  if(PRS.popup&&PRS.popup.closed){PRS.popup=null;pvLayout()}else for(const v of PRS.vids||[])if(v.els[1])pvSync(v);
   sampleVoice(t);
 }
 /* voice analysis: 0.25s steps of active time */
@@ -2632,7 +2673,7 @@ function openAudience(){
   if(!w){toast('別ウィンドウを開けませんでした');return}
   const bg=getComputedStyle(document.documentElement).getPropertyValue('--stage').trim();
   w.document.open();w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(S.doc.name||'無題')}</title><style>html,body{margin:0;height:100%;background:${bg};overflow:hidden}body{display:flex;align-items:center;justify-content:center}canvas{display:block}</style><body><canvas></canvas></body>`);w.document.close();
-  PRS.popup=w;w.addEventListener('resize',drawAudience);w.addEventListener('keydown',presKey,true);drawAudience();
+  PRS.popup=w;w.addEventListener('resize',drawPres);w.document.addEventListener('click',pnext);w.addEventListener('keydown',presKey,true);drawAudience();
 }
 function drawAudience(){const w=PRS.popup;if(!w||w.closed){PRS.popup=null;return}const cv=w.document.querySelector('canvas');if(cv)presDraw(cv,PRS.blank?-1:PRS.i,w.innerWidth,w.innerHeight)}
 function stopMedia(){
@@ -2646,6 +2687,7 @@ async function endPres(){
   if(!PRS.on)return;const t=pnow();PRS.dur[PRS.i]+=t-PRS.slideT;PRS.on=false;clearInterval(PRS.tick);
   if(window.speechSynthesis)speechSynthesis.cancel();
   if(PRS.ro)PRS.ro.disconnect();if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
+  pvReset();for(const u of Object.values(PRS.vurl||{}))URL.revokeObjectURL(u);PRS.vurl={};
   if(PRS.popup&&!PRS.popup.closed)PRS.popup.close();PRS.popup=null;
   const blob=await stopMedia();$('#pres').hidden=true;$('#pres').innerHTML='';PRS.an=null;
   if(t<3){toast('3秒未満のため記録しませんでした');return}
@@ -2663,7 +2705,7 @@ function presKey(e){
   const map={ArrowRight:1,ArrowDown:1,PageDown:1,' ':1,Enter:1,ArrowLeft:-1,ArrowUp:-1,PageUp:-1,Backspace:-1};
   if(e.target&&e.target.tagName==='SELECT'&&(k.startsWith('Arrow')))return;
   e.stopPropagation();
-  if(map[k]){e.preventDefault();pgo(PRS.i+map[k]);return}
+  if(map[k]){e.preventDefault();if(map[k]>0)pnext();else pprev();return}
   if(k==='Home'){e.preventDefault();pgo(0);return}if(k==='End'){e.preventDefault();pgo(S.doc.pages.length-1);return}
   const l=k.toLowerCase();
   if(l==='p'){togglePause();return}
@@ -3496,7 +3538,8 @@ async function importPPTXInner(file){
         const vr=(pm&&W.rels[pm.getAttributeNS(NR,'embed')])||(vf&&W.rels[vf.getAttributeNS(NR,'link')]);
         if(W.ids&&vr&&vr.target&&map.get(vr.target)){let mid=vIds.get(vr.target);
           if(!mid){const e=vr.target.split('.').pop().toLowerCase(),nm=vr.target.split('/').pop(),type=VMIME[e]||'video/mp4';mid=uid();vmedia[mid]={blob:null,size:map.get(vr.target).usize,name:nm,type,part:vr.target};vIds.set(vr.target,mid)}
-          W.out.push(tag(videoItem({...box,mediaId:mid,posterId:imageId,fit:'stretch'}),{kind:'pic',o:{...box,imageId:mid}}));continue}
+          const tr=pm&&pm.getElementsByTagNameNS(P14,'trim')[0],play={start:'none'};if(tr){if(tr.getAttribute('st'))play.st=+tr.getAttribute('st')/1000;if(tr.getAttribute('end'))play.end=+tr.getAttribute('end')/1000}
+          W.out.push(tag(videoItem({...box,mediaId:mid,posterId:imageId,fit:'stretch',play}),{kind:'pic',o:{...box,imageId:mid}}));continue}
         W.out.push(tag(imageItem({...box,imageId,fit:'stretch'}),{kind:'pic',o:{...box,imageId}}));continue}
       const spPr=kid(el,'spPr',NP);let fl=color(C,kid(spPr,'solidFill'));const lnEl=kid(spPr,'ln'),st=lnEl&&!kid(lnEl,'noFill')?color(C,kid(lnEl,'solidFill')):null;
       if(!fl&&!kid(spPr,'noFill')){const sty=kid(el,'style',NP),fr=sty&&kid(sty,'fillRef');if(fr&&fr.getAttribute('idx')!=='0')fl=color(C,fr)}
@@ -3564,6 +3607,7 @@ async function importPPTXInner(file){
       pg.notesOrig=pg.notes||'';
       const tree=sx.getElementsByTagNameNS(NP,'spTree')[0];
       if(tree)await walk({C,rels:srel,out:pg.items,ids:pg.srcIds},tree,TF0,false);pg.srcIds=prune(pg.srcIds,pg.items);
+      const vt=vidTiming(sx);for(const it of pg.items)if(it.type==='video'&&it.src&&vt[it.src.id])Object.assign(it.play,vt[it.src.id]);
       d.pages.push(pg);
     }catch(err){errors.push(err);d.pages.push({id:uid(),items:[],noNombre:true,part,srcIds:[],broken:true})}
     cache.delete(part);
@@ -3576,6 +3620,18 @@ async function importPPTXInner(file){
   kvSet('pptxsrc',{key,blob:file});
   if(errors.length)toast(`一部の要素を表示できませんでした（${errors.length}件）。保存時は元のまま残ります`);
 }
+/* 動画の再生設定（p:timing）：開始（自動／クリック）、音量、ループ */
+function vidTiming(sx){
+  const out={},tm=sx.getElementsByTagNameNS(NP,'timing')[0];if(!tm)return out;const o=id=>out[id]||(out[id]={});
+  for(const v of tm.getElementsByTagNameNS(NP,'video')){const cm=kid(v,'cMediaNode',NP),t=cm&&cm.getElementsByTagNameNS(NP,'spTgt')[0];if(!t)continue;
+    const r=o(t.getAttribute('spid')),ctn=kid(cm,'cTn',NP),m=cm.getAttribute('mute');
+    if(cm.hasAttribute('vol'))r.vol=Math.max(0,Math.min(1,+cm.getAttribute('vol')/100000));if(m==='1'||m==='true')r.mute=true;
+    if(ctn&&ctn.getAttribute('repeatCount')==='indefinite')r.loop=true;if(v.getAttribute('fullScrn')==='1')r.full=true}
+  for(const c of tm.getElementsByTagNameNS(NP,'cmd')){if(!/^playFrom/.test(c.getAttribute('cmd')||''))continue;const t=c.getElementsByTagNameNS(NP,'spTgt')[0];if(!t)continue;
+    let n=c.parentNode,prev=null,seq=null;while(n&&n!==tm){if(n.localName==='cTn'){const nt=n.getAttribute('nodeType');if(nt==='mainSeq'||nt==='interactiveSeq'){seq=nt;break}prev=n}n=n.parentNode}
+    if(seq!=='mainSeq'||!prev)continue;const r=o(t.getAttribute('spid'));if(r.start)continue;
+    const cond=prev.getElementsByTagNameNS(NP,'cond')[0];r.start=cond&&cond.getAttribute('delay')==='indefinite'?'click':'auto'}
+  return out}
 const near=(a,b)=>Math.abs(a-b)<0.05;
 function setXfrm(el,x,y,w,h){
   const pr=kid(el,'spPr',NP),doc=el.ownerDocument;if(!pr)return;let xf=kid(pr,'xfrm');
