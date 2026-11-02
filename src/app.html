@@ -174,6 +174,17 @@ a:hover{color:var(--accent-hover);text-decoration-thickness:2px}
 .lay{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px;font-size:12px}
 .lay canvas{width:100%;aspect-ratio:16/9;border:1px solid var(--line);display:block}
 .lays.sugs{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.tcdlg{width:min(760px,100%)}
+.tcseg{display:flex}
+.tcseg button{border-radius:0;flex:1}
+.tcseg button:first-child{border-radius:var(--r) 0 0 var(--r)}
+.tcseg button:last-child{border-radius:0 var(--r) var(--r) 0;border-left:0}
+.tcseg button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
+.tcg{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px}
+.tcg .lay canvas{aspect-ratio:auto}
+.tcr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,9em) 64px 28px;gap:4px;margin-bottom:4px}
+.tcr.col{grid-template-columns:7em minmax(0,1fr) 28px}
+.tcr.tch{color:var(--sub);font-size:12px;margin-bottom:2px}
 .lay.on{background:var(--accent-soft);color:var(--ink);border-color:var(--accent);outline:1px solid var(--accent)}
 .ilpat{margin-top:6px}
 .ilord{display:flex;flex-wrap:wrap;gap:4px;touch-action:none;user-select:none;-webkit-user-select:none}
@@ -433,7 +444,7 @@ textarea#pNotes{width:100%;min-height:100px;resize:vertical;line-height:1.6}
     <div class="grp"><button id="bUndo" title="取り消し Ctrl+Z" aria-label="取り消し">↶</button><button id="bRedo" title="やり直し Ctrl+Shift+Z" aria-label="やり直し">↷</button></div>
     <div class="grp"><button id="bZo" aria-label="縮小">−</button><span id="zoomLbl">100%</span><button id="bZi" aria-label="拡大">＋</button><button id="bGuide" class="on">ガイド</button></div>
     <span id="docInfo"></span>
-    <div class="grp bk-only"><button id="bPlan">台割</button><button id="bDw">自動台割</button></div>
+    <div class="grp bk-only"><button id="bPlan">台割</button><button id="bDw">自動台割</button><button id="bTocCol">目次・奥付</button></div>
     <button id="bBook" class="bk-only">仮の本</button>
     <button id="bOutline" hidden>構成</button>
     <button id="bMaster" class="sl-only">マスター</button>
@@ -1782,6 +1793,191 @@ function openAutoDaiwari(){
 }
 $('#bDw').onclick=openAutoDaiwari;
 
+/* ---------- 目次・奥付（生成した要素に gen:'toc'|'colophon' を付け、作り直すときはその要素だけ置き換える。設定は d.tocGen / d.colGen） ---------- */
+const GK=k=>({c:0,m:0,y:0,k}),GFONTS={sans:['Noto Sans JP','Noto Sans JP','ゴシック'],serif:['Shippori Mincho','Noto Serif JP','明朝'],maru:['Zen Maru Gothic','Zen Maru Gothic','丸ゴシック']};
+function gAdv(s,size,font,weight,V){let w=0;for(const u of units([...String(s)],{size,track:0,font,weight},V))w+=u.adv;return w}
+function gNum(n,V){return V&&n.length>2?[...n].map(c=>String.fromCharCode(c.charCodeAt(0)+0xFEE0)).join(''):n}
+function gT(kind,o){return textItem(Object.assign({gen:kind,dir:'h',weight:400,track:0,leading:140,align:'start',color:GK(100)},o))}
+function gR(kind,o){return rectItem(Object.assign({gen:kind,fill:GK(100),stroke:null,sw:0},o))}
+function gLine(sz){return r1(sz*PT*1.45+0.2)}
+/* 横組みの1行：タイトル（左）・作者・ページ（右）。lead=リーダー罫 */
+function tocRowH(kind,g,o){const{x,y,w,sz,r}=o,F=g.font,h=gLine(sz),out=[],nw=o.nw||10;
+  out.push(gT(kind,{x:r1(x+w-nw),y,w:nw,h,text:r.num,font:F[0],weight:700,size:sz,align:'end',color:o.ncol||GK(100)}));
+  let right=x+w-nw-2;
+  if(r.by){const bs=Math.max(6,sz*0.8),bw=Math.min(w*0.35,gAdv(r.by,bs,F[1],400,false)+0.5);right-=bw;out.push(gT(kind,{x:r1(right),y:r1(y+(sz-bs)*PT*0.5),w:r1(bw),h:gLine(bs),text:r.by,font:F[1],size:bs,color:GK(70)}));right-=3}
+  const tw=Math.min(right-x,gAdv(r.title,sz,F[0],o.tw||400,false)+0.5);
+  out.push(gT(kind,{x,y,w:r1(Math.max(5,right-x)),h,text:r.title,font:F[0],weight:o.tw||400,size:sz}));
+  if(o.lead){const lx=x+tw+1.5,lw=right-lx-0.5,n=Math.floor(lw/(sz*PT));if(n>1)out.push(gT(kind,{x:r1(lx),y,w:r1(lw),h,text:'…'.repeat(n),font:F[1],size:sz,align:'end',color:GK(60)}))}
+  return out}
+function tocFit(n,avail,max,min){const p=n?avail/n:max;return Math.max(min,Math.min(max,p))}
+const TOC_DESIGNS={
+  rule:{name:'罫線',make(g){const{m}=g,F=g.font,K='toc',out=[];const hs=20;
+    out.push(gT(K,{x:m.x,y:m.y,w:m.w,h:gLine(hs),text:g.heading,font:F[0],weight:700,size:hs}));
+    out.push(gR(K,{x:m.x,y:r1(m.y+gLine(hs)+2),w:m.w,h:0.6}));
+    const y0=m.y+gLine(hs)+10,p=tocFit(g.rows.length,m.y+m.h-y0,12,5),sz=Math.min(10,p*0.42/PT);
+    g.rows.forEach((r,k)=>{const y=r1(y0+k*p);out.push(...tocRowH(K,g,{x:m.x,y,w:m.w,sz,r}));out.push(gR(K,{x:m.x,y:r1(y+p*0.72),w:m.w,h:0.1}))});return out}},
+  leader:{name:'リーダー',make(g){const{m}=g,F=g.font,K='toc',out=[];const hs=16;
+    out.push(gT(K,{x:m.x,y:r1(m.y+4),w:m.w,h:gLine(hs),text:g.heading,font:F[0],weight:700,size:hs,align:'center',track:300}));
+    const y0=m.y+gLine(hs)+16,p=tocFit(g.rows.length,m.y+m.h-y0,10,4.5),sz=Math.min(10,p*0.5/PT),ix=r1(m.w*0.08);
+    g.rows.forEach((r,k)=>out.push(...tocRowH(K,g,{x:r1(m.x+ix),y:r1(y0+k*p),w:r1(m.w-ix*2),sz,r,lead:true})));return out}},
+  num:{name:'大きい数字',make(g){const{m}=g,F=g.font,K='toc',out=[];const hs=28;
+    out.push(gT(K,{x:m.x,y:m.y,w:m.w,h:gLine(hs),text:g.heading,font:F[0],weight:700,size:hs}));
+    const y0=m.y+gLine(hs)+12,p=tocFit(g.rows.length,m.y+m.h-y0,20,7),bs=Math.min(30,p*0.62/PT),sz=Math.min(11,bs*0.42),nw=r1(Math.max(16,gAdv('000',bs,F[0],700,false)+2));
+    g.rows.forEach((r,k)=>{const y=r1(y0+k*p),nh=bs*PT;
+      out.push(gT(K,{x:m.x,y,w:nw,h:gLine(bs),text:r.num,font:F[0],weight:700,size:bs,leading:110}));
+      out.push(gR(K,{x:r1(m.x+nw+2),y:r1(y+nh*0.15),w:0.3,h:r1(nh*0.8)}));
+      const tx=r1(m.x+nw+6),ty=r.by?r1(y+nh*0.12):r1(y+(nh-sz*PT)/2);
+      out.push(gT(K,{x:tx,y:ty,w:r1(m.x+m.w-tx),h:gLine(sz),text:r.title,font:F[0],weight:700,size:sz}));
+      if(r.by){const s2=Math.max(6,sz*0.75);out.push(gT(K,{x:tx,y:r1(ty+gLine(sz)),w:r1(m.x+m.w-tx),h:gLine(s2),text:r.by,font:F[1],size:s2,color:GK(70)}))}});return out}},
+  band:{name:'帯',make(g){const{m,W,b}=g,F=g.font,K='toc',out=[];const hs=24,bh=r1(m.y+gLine(hs)+14);
+    out.push(gR(K,{x:-b,y:-b,w:r1(W+2*b),h:r1(bh+b)}));
+    out.push(gT(K,{x:m.x,y:r1(bh-gLine(hs)-6),w:m.w,h:gLine(hs),text:g.heading,font:F[0],weight:700,size:hs,color:GK(0)}));
+    const y0=bh+12,p=tocFit(g.rows.length,m.y+m.h-y0,13,6),sz=Math.min(10,p*0.4/PT),nw=r1(Math.max(9,gAdv('000',sz,F[0],700,false)+3));
+    g.rows.forEach((r,k)=>{const y=r1(y0+k*p),h=r1(gLine(sz)+1.6);
+      out.push(gR(K,{x:r1(m.x+m.w-nw),y:r1(y-0.8),w:nw,h}));
+      out.push(...tocRowH(K,g,{x:m.x,y,w:r1(m.w-1.5),sz,r,nw:r1(nw-1.5),ncol:GK(0),tw:700}))});return out}},
+  side:{name:'縦帯',make(g){const{m,W,H,b,L}=g,F=g.font,K='toc',out=[];const bw=22,hs=20;
+    const bx=L?-b:W-bw,cx0=L?bw+8:m.x,cx1=L?m.x+m.w:W-bw-8;
+    out.push(gR(K,{x:r1(bx),y:-b,w:r1(bw+b),h:r1(H+2*b)}));
+    out.push(gT(K,{x:r1((L?0:W-bw)+(bw-hs*PT*1.2)/2),y:m.y,w:r1(hs*PT*1.2),h:r1(m.h*0.6),text:g.heading,font:F[0],weight:700,size:hs,dir:'v',track:200,color:GK(0)}));
+    const y0=m.y+4,p=tocFit(g.rows.length,m.h-4,13,5),sz=Math.min(10,p*0.42/PT);
+    g.rows.forEach((r,k)=>{const y=r1(y0+k*p);out.push(...tocRowH(K,g,{x:r1(cx0),y,w:r1(cx1-cx0),sz,r}));out.push(gR(K,{x:r1(cx0),y:r1(y+p*0.72),w:r1(cx1-cx0),h:0.1}))});return out}},
+  tile:{name:'タイル',make(g){const{m}=g,F=g.font,K='toc',out=[];const hs=20;
+    out.push(gT(K,{x:m.x,y:m.y,w:m.w,h:gLine(hs),text:g.heading,font:F[0],weight:700,size:hs}));
+    const y0=m.y+gLine(hs)+8,gap=3,cols=2,cw2=(m.w-gap)/cols,rn=Math.max(1,Math.ceil(g.rows.length/cols)),ch=Math.max(10,Math.min(34,(m.y+m.h-y0+gap)/rn-gap)),sz=Math.min(10,ch*0.2/PT),bs=Math.min(24,ch*0.36/PT);
+    g.rows.forEach((r,k)=>{const x=r1(m.x+(k%cols)*(cw2+gap)),y=r1(y0+Math.floor(k/cols)*(ch+gap)),pd=2.5;
+      out.push(gR(K,{x,y,w:r1(cw2),h:r1(ch),fill:null,stroke:GK(100),sw:0.3}));
+      out.push(gT(K,{x:r1(x+pd),y:r1(y+pd),w:r1(cw2-pd*2),h:gLine(bs),text:r.num,font:F[0],weight:700,size:bs,leading:110}));
+      const ty=r1(y+ch-pd-gLine(sz)-(r.by?gLine(sz*0.8):0));
+      out.push(gT(K,{x:r1(x+pd),y:ty,w:r1(cw2-pd*2),h:gLine(sz),text:r.title,font:F[0],weight:700,size:sz}));
+      if(r.by)out.push(gT(K,{x:r1(x+pd),y:r1(ty+gLine(sz)),w:r1(cw2-pd*2),h:gLine(sz*0.8),text:r.by,font:F[1],size:Math.max(6,sz*0.8),color:GK(70)}))});return out}},
+  tate:{name:'縦組み',make(g){const{m}=g,F=g.font,K='toc',out=[];const hs=20,hw=r1(hs*PT*1.3);
+    out.push(gT(K,{x:r1(m.x+m.w-hw),y:m.y,w:hw,h:m.h,text:g.heading,font:F[0],weight:700,size:hs,dir:'v',track:300}));
+    out.push(gR(K,{x:r1(m.x+m.w-hw-5),y:m.y,w:0.3,h:m.h}));
+    const x1=m.x+m.w-hw-10,p=tocFit(g.rows.length,x1-m.x,12,5),sz=Math.min(10,p*0.45/PT),cw1=r1(sz*PT*1.25);
+    g.rows.forEach((r,k)=>{const x=r1(x1-k*p-cw1),n=gNum(r.num,true),nh=r1(gAdv(n,sz,F[0],700,true)+0.5),t=r.title+(r.by?'　'+r.by:''),th=Math.min(m.h*0.75,gAdv(t,sz,F[0],400,true)+0.5);
+      out.push(gT(K,{x,y:m.y,w:cw1,h:r1(m.h*0.8),text:t,font:F[0],size:sz,dir:'v'}));
+      out.push(gT(K,{x,y:r1(m.y+m.h-nh),w:cw1,h:nh,text:n,font:F[0],weight:700,size:sz,dir:'v'}));
+      const ly=m.y+th+1.5,lh=m.y+m.h-nh-1.5-ly,c=Math.floor(lh/(sz*PT));if(c>1)out.push(gT(K,{x,y:r1(ly),w:cw1,h:r1(lh),text:'…'.repeat(c),font:F[1],size:sz,dir:'v',align:'end',color:GK(60)}))});return out}}
+};
+/* 奥付：rows=[{label,value}]。横組みは版面の下に寄せる */
+function colRows(g,o){const{x,y,w,sz}=o,F=g.font,K='colophon',out=[],lw=r1(Math.max(...g.rows.map(r=>gAdv(r.label,sz,F[1],700,false)),sz*PT*3)+4),lh=gLine(sz)+0.6;let yy=y;
+  for(const r of g.rows){const vw=w-lw,n=Math.max(1,Math.ceil((gAdv(r.value,sz,F[1],400,false)+0.5)/vw));
+    out.push(gT(K,{x,y:r1(yy),w:lw,h:gLine(sz),text:r.label,font:F[1],weight:700,size:sz,color:o.lc||GK(100)}));
+    out.push(gT(K,{x:r1(x+lw),y:r1(yy),w:r1(vw),h:r1(gLine(sz)+(n-1)*sz*PT*1.45),text:r.value,font:F[1],size:sz,leading:145,color:o.vc||GK(100)}));
+    yy+=lh+(n-1)*sz*PT*1.45}
+  return{items:out,h:yy-y}}
+function colH(g,w,sz){return colRows(g,{x:0,y:0,w,sz}).h}
+const COL_DESIGNS={
+  rule:{name:'罫線',make(g){const{m}=g,F=g.font,K='colophon',out=[],ts=13,sz=8,w=Math.min(m.w,90),rh=colH(g,w,sz),x=r1(g.L?m.x:m.x+m.w-w);
+    const H=gLine(ts)+5+rh+4,y=m.y+m.h-H;
+    out.push(gT(K,{x,y:r1(y),w,h:gLine(ts),text:g.title,font:F[0],weight:700,size:ts}));
+    out.push(gR(K,{x,y:r1(y+gLine(ts)+1.5),w,h:0.5}));
+    out.push(...colRows(g,{x,y:y+gLine(ts)+5,w,sz}).items);
+    out.push(gR(K,{x,y:r1(y+H-1),w,h:0.15}));return out}},
+  center:{name:'中央',make(g){const{m}=g,F=g.font,K='colophon',out=[],ts=16,sz=8,lead=170;
+    const lines=g.rows.map(r=>r.label?r.label+'　'+r.value:r.value),th=gLine(ts),bh=r1(sz*PT*(1+(lines.length-1)*lead/100)+1),H=th+12+bh,y=m.y+(m.h-H)/2;
+    out.push(gT(K,{x:m.x,y:r1(y),w:m.w,h:th,text:g.title,font:F[0],weight:700,size:ts,align:'center'}));
+    out.push(gR(K,{x:r1(m.x+m.w/2-6),y:r1(y+th+5),w:12,h:0.4}));
+    out.push(gT(K,{x:m.x,y:r1(y+th+12),w:m.w,h:bh,text:lines.join('\n'),font:F[1],size:sz,leading:lead,align:'center'}));return out}},
+  box:{name:'枠',make(g){const{m}=g,F=g.font,K='colophon',out=[],ts=11,sz=7.5,w=Math.min(m.w,96),pd=4,rh=colH(g,w-pd*2,sz),bh=r1(gLine(ts)+5),H=r1(bh+pd+rh+pd-1),x=r1(m.x+(m.w-w)/2),y=r1(m.y+m.h-H);
+    out.push(gR(K,{x,y,w,h:H,fill:null,stroke:GK(100),sw:0.4}));
+    out.push(gR(K,{x,y,w,h:bh}));
+    out.push(gT(K,{x:r1(x+pd),y:r1(y+(bh-gLine(ts))/2+0.3),w:r1(w-pd*2),h:gLine(ts),text:g.title,font:F[0],weight:700,size:ts,color:GK(0)}));
+    out.push(...colRows(g,{x:x+pd,y:y+bh+pd,w:w-pd*2,sz}).items);return out}},
+  bar:{name:'太罫',make(g){const{m}=g,F=g.font,K='colophon',out=[],ts=18,sz=8,w=Math.min(m.w-6,92),rh=colH(g,w,sz),H=gLine(ts)+4+rh,x=r1(m.x+6),y=m.y+m.h-H;
+    out.push(gR(K,{x:m.x,y:r1(y),w:2,h:r1(H-0.6)}));
+    out.push(gT(K,{x,y:r1(y),w,h:gLine(ts),text:g.title,font:F[0],weight:700,size:ts}));
+    out.push(...colRows(g,{x,y:y+gLine(ts)+4,w,sz,lc:GK(60)}).items);return out}},
+  tate:{name:'縦組み',make(g){const{m}=g,F=g.font,K='colophon',out=[],ts=13,sz=8,tw=r1(ts*PT*1.3),cw1=r1(sz*PT*1.25),p=r1(sz*PT*1.9),h=Math.min(m.h,110),y=r1(m.y+m.h-h);
+    const n=g.rows.length,W2=3+tw+6+n*p+3,x0=r1(g.L?m.x:m.x+m.w-W2),xr=x0+W2;
+    out.push(gR(K,{x:r1(xr),y,w:0.4,h:r1(h)}));
+    out.push(gT(K,{x:r1(xr-3-tw),y:r1(y+3),w:tw,h:r1(h-6),text:g.title,font:F[0],weight:700,size:ts,dir:'v'}));
+    g.rows.forEach((r,k)=>{const x=r1(xr-3-tw-6-(k+1)*p+(p-cw1)/2);
+      out.push(gT(K,{x,y:r1(y+3),w:cw1,h:r1(h-6),text:(r.label?r.label+'　':'')+r.value.replace(/[0-9]{3,}/g,s=>gNum(s,true)),font:F[1],size:sz,dir:'v'}))});
+    out.push(gR(K,{x:x0,y,w:0.15,h:r1(h)}));return out}}
+};
+function tocAuto(){const d=S.doc,out=[],skip=new Set(PLAN_KINDS.map(k=>k[1]));let prev='';
+  d.pages.forEach(p=>{const pl=p.plan||{},t=(pl.title||'').trim();if(t&&t!==prev&&t!==d.name&&!skip.has(t)&&!['toc','colophon','blank'].includes(pl.kind))out.push({title:t,by:'',pid:p.id});prev=t});
+  if(out.length)return out;
+  /* 台割にタイトルがない書類：太字か12pt以上の文字の1行目を見出しとみなす */
+  d.pages.forEach(p=>{for(const it of p.items){if(it.type!=='text'||it.gen||!(it.weight>=700||it.size>=12))continue;const t=String(it.text||'').split('\n')[0].trim();if(t&&t.length<=40&&t!==d.name&&!out.some(o=>o.pid===p.id)){out.push({title:t,by:'',pid:p.id});break}}});
+  return out}
+function today(){const t=new Date();return `${t.getFullYear()}年${t.getMonth()+1}月${t.getDate()}日`}
+function colDefault(){const d=S.doc,pr=PR();return{title:d.name&&d.name!=='無題'?d.name:'',rows:[{label:'発行日',value:today()+'　初版'},{label:'発行',value:''},{label:'著者',value:''},{label:'連絡先',value:''},{label:'印刷',value:d.printer&&d.printer!=='generic'?pr.name:''}]}}
+function genCtx(kind,pi,st){const d=S.doc,m=margBox(pi);
+  return Object.assign({m,W:pw(d),H:d.trimH,b:d.bleed,L:isLeft(pi),font:GFONTS[st.font]||GFONTS.sans},kind==='toc'
+    ?{heading:st.heading,rows:st.rows.filter(r=>r.title.trim()).map(r=>{const i=d.pages.findIndex(p=>p.id===r.pid);return{title:r.title.trim(),by:(r.by||'').trim(),num:i<0?'':nombreText(i)}})}
+    :{title:st.title,rows:st.rows.filter(r=>r.value.trim()).map(r=>({label:r.label.trim(),value:r.value.trim()}))})}
+function genItems(kind,pi,st){const D=kind==='toc'?TOC_DESIGNS:COL_DESIGNS,des=D[st.design]||Object.values(D)[0];return des.make(genCtx(kind,pi,st))}
+async function genFonts(st){const F=GFONTS[st.font]||GFONTS.sans,s=JSON.stringify(st).slice(0,3000)+'0123456789…';
+  await Promise.all([...new Set(F)].flatMap(f=>[400,700].map(w=>document.fonts.load(`${w} 20px "${f}"`,s).catch(()=>{}))));wcache.clear();lcache.clear()}
+function genThumb(c,items,wpx){const d=S.doc,W=pw(d),H=d.trimH,dpr=window.devicePixelRatio||1;c.width=Math.round(wpx*dpr);c.height=Math.round(wpx*H/W*dpr);c.style.aspectRatio=W+'/'+H;
+  const ctx=c.getContext('2d'),s=c.width/W;ctx.setTransform(s,0,0,s,0,0);ctx.fillStyle='#ffffff';ctx.fillRect(0,0,W,H);
+  ctx.save();ctx.beginPath();ctx.rect(0,0,W,H);ctx.clip();for(const it of items)drawItem(ctx,it,null,false);ctx.restore();for(const it of items)lcache.delete(it.id)}
+function openTocCol(kind){
+  const d=S.doc;if(d.kind!=='body'){toast('本文の書類で使えます');return}
+  kind=kind||'toc';
+  const st={toc:d.tocGen?JSON.parse(JSON.stringify(d.tocGen)):{design:d.binding==='right'?'tate':'rule',font:d.binding==='right'?'serif':'sans',heading:'目次',rows:tocAuto()},
+    colophon:d.colGen?JSON.parse(JSON.stringify(d.colGen)):Object.assign({design:'rule',font:'sans'},colDefault())};
+  const pidx=id=>d.pages.findIndex(p=>p.id===id);
+  const defTarget=k=>{const s=st[k];if(s.pid&&pidx(s.pid)>=0)return s.pid;const f=d.pages.find(p=>planOf(p).kind===k);if(f)return f.id;
+    return d.pages[S.page].items.length?(k==='toc'?'new-after':'new-end'):d.pages[S.page].id};
+  const tgt={toc:defTarget('toc'),colophon:defTarget('colophon')};
+  const tIndex=k=>{const t=tgt[k];return t==='new-after'?S.page+1:t==='new-end'?d.pages.length:pidx(t)};
+  const pageOpts=k=>d.pages.map((p,i)=>`<option value="${p.id}"${tgt[k]===p.id?' selected':''}>${esc(nombreText(i))}${planOf(p).title?'　'+esc(planOf(p).title):''}</option>`).join('')
+    +`<option value="new-after"${tgt[k]==='new-after'?' selected':''}>現在のページの後ろに追加</option><option value="new-end"${tgt[k]==='new-end'?' selected':''}>最後に追加</option>`;
+  const dlg=modal(`<h2>目次・奥付</h2>
+    <div class="tcseg" role="tablist"><button data-k="toc" role="tab">目次</button><button data-k="colophon" role="tab">奥付</button></div>
+    <div class="tcg" id="tc-des"></div>
+    <div class="row">${F('書体',`<select id="tc-font">${Object.entries(GFONTS).map(([k,v])=>`<option value="${k}">${v[2]}</option>`).join('')}</select>`)}${F('配置するページ',`<select id="tc-page"></select>`)}</div>
+    <div id="tc-body"></div>
+    <label class="chk" id="tc-rep-l" hidden><input type="checkbox" id="tc-rep"> ページ内のほかの要素を消す</label>
+    <div class="foot"><button id="tc-cancel">キャンセル</button><button class="primary" id="tc-ok">作成</button></div>`);
+  dlg.classList.add('tcdlg');
+  const rowToc=(r)=>`<div class="tcr"><input type="text" data-f="title" value="${esc(r.title)}" aria-label="タイトル"><input type="text" data-f="by" value="${esc(r.by||'')}" aria-label="作者"><select data-f="pid" aria-label="ページ">${d.pages.map((p,i)=>`<option value="${p.id}"${p.id===r.pid?' selected':''}>${esc(nombreText(i))}</option>`).join('')}</select><button data-del aria-label="削除">−</button></div>`;
+  const rowCol=(r)=>`<div class="tcr col"><input type="text" data-f="label" value="${esc(r.label)}" aria-label="項目"><input type="text" data-f="value" value="${esc(r.value)}" aria-label="内容"><button data-del aria-label="削除">−</button></div>`;
+  const body=()=>kind==='toc'
+    ?`${F('見出し',`<input type="text" id="tc-head" value="${esc(st.toc.heading)}">`)}
+      <div class="tcr tch"><span>タイトル</span><span>作者</span><span>ページ</span><span></span></div><div id="tc-rows">${st.toc.rows.map(rowToc).join('')}</div>
+      <div class="btns"><button id="tc-add">＋ 行を追加</button><button id="tc-auto">台割から読み込む</button></div>`
+    :`${F('書名',`<input type="text" id="tc-title" value="${esc(st.colophon.title)}">`)}
+      <div class="tcr col tch"><span>項目</span><span>内容</span><span></span></div><div id="tc-rows">${st.colophon.rows.map(rowCol).join('')}</div>
+      <div class="btns"><button id="tc-add">＋ 行を追加</button></div>`;
+  const read=()=>{const s=st[kind],rs=[...dlg.querySelectorAll('#tc-rows .tcr')];
+    if(kind==='toc'){s.heading=$('#tc-head').value;s.rows=rs.map(r=>({title:r.querySelector('[data-f=title]').value,by:r.querySelector('[data-f=by]').value,pid:r.querySelector('[data-f=pid]').value}))}
+    else{s.title=$('#tc-title').value;s.rows=rs.map(r=>({label:r.querySelector('[data-f=label]').value,value:r.querySelector('[data-f=value]').value}))}
+    s.font=$('#tc-font').value;tgt[kind]=$('#tc-page').value};
+  const repCheck=()=>{const i=tIndex(kind),p=d.pages[i],has=!!(p&&p.items.some(it=>!it.gen));$('#tc-rep-l').hidden=!has;if(!has)$('#tc-rep').checked=false};
+  let drawT=0,seq=0;
+  const thumbs=async()=>{const my=++seq;await genFonts(st[kind]);if(my!==seq)return;const pi=tIndex(kind);
+    for(const b of dlg.querySelectorAll('#tc-des .lay')){b.classList.toggle('on',b.dataset.d===st[kind].design);genThumb(b.querySelector('canvas'),genItems(kind,pi,Object.assign({},st[kind],{design:b.dataset.d})),110)}};
+  const later=()=>{clearTimeout(drawT);drawT=setTimeout(thumbs,150)};
+  const show=()=>{const D=kind==='toc'?TOC_DESIGNS:COL_DESIGNS;
+    for(const b of dlg.querySelectorAll('.tcseg button'))b.setAttribute('aria-selected',b.classList.toggle('on',b.dataset.k===kind));
+    $('#tc-des').innerHTML=Object.entries(D).map(([k,v])=>`<button type="button" class="lay" data-d="${k}"><canvas></canvas>${esc(v.name)}</button>`).join('');
+    $('#tc-font').value=st[kind].font;$('#tc-page').innerHTML=pageOpts(kind);$('#tc-body').innerHTML=body();
+    $('#tc-add').onclick=()=>{$('#tc-rows').insertAdjacentHTML('beforeend',kind==='toc'?rowToc({title:'',by:'',pid:d.pages[S.page].id}):rowCol({label:'',value:''}));read();later()};
+    if(kind==='toc')$('#tc-auto').onclick=()=>{st.toc.rows=tocAuto();$('#tc-rows').innerHTML=st.toc.rows.map(rowToc).join('');later()};
+    repCheck();thumbs()};
+  dlg.addEventListener('input',()=>{read();later()});
+  dlg.addEventListener('change',()=>{read();repCheck();later()});
+  dlg.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;
+    if(t.matches('[data-del]')){t.closest('.tcr').remove();read();later()}
+    else if(t.closest('#tc-des')){st[kind].design=t.dataset.d;for(const b of dlg.querySelectorAll('#tc-des .lay'))b.classList.toggle('on',b===t)}
+    else if(t.closest('.tcseg')&&t.dataset.k!==kind){read();kind=t.dataset.k;show()}});
+  $('#tc-cancel').onclick=closeModal;
+  $('#tc-ok').onclick=async()=>{read();const s=st[kind];await genFonts(s);
+    let pi=tIndex(kind),added=false;if(tgt[kind]==='new-after'||tgt[kind]==='new-end'){d.pages.splice(pi,0,newPage());added=true}
+    const pg=d.pages[pi],rep=$('#tc-rep').checked;
+    pg.items=pg.items.filter(it=>!rep&&it.gen!==kind&&it.gen!=='scaffold-'+kind);pg.items.push(...genItems(kind,pi,s));
+    pg.plan=Object.assign({},planOf(pg),{kind,title:planOf(pg).title||(kind==='toc'?'目次':'奥付')});
+    s.pid=pg.id;if(kind==='toc')d.tocGen=s;else d.colGen=s;
+    closeModal();S.sel=null;rebuild();commit();setPage(pi);requestAnimationFrame(()=>centerStage(pi));renderProps();toast(`${kind==='toc'?'目次':'奥付'}を作成しました（${nombreText(pi)}ページ${added?'に追加':''}）`)};
+  show();
+}
+$('#bTocCol').onclick=()=>openTocCol(planOf(S.doc.pages[S.page]||{}).kind==='colophon'?'colophon':'toc');
+
 /* ---------- home print ---------- */
 const PAPERS={A4:[210,297],B5:[182,257],A3:[297,420],B4:[257,364],'レター':[215.9,279.4],A5:[148,210]};
 const HP_EDGE=5;
@@ -2561,10 +2757,10 @@ function scaffold(i){
   if(k==='title'){const text=t||d.name||'';
     if(v)add(textItem({x:r1(m.x+m.w/2-12),y:r1(m.y+m.h*0.12),w:24,h:r1(m.h*0.7),text,font:'Shippori Mincho',weight:700,size:24,leading:120,track:100}));
     else add(textItem({x:m.x,y:r1(m.y+m.h*0.4),w:m.w,h:20,text,font:'Noto Sans JP',weight:700,size:20,leading:140,dir:'h',align:'center'}));
-  }else if(k==='toc'){add(textItem({x:m.x,y:m.y,w:m.w,h:m.h,text:['目次','',...tocLines()].join('\n'),size:10,leading:v?200:170,dir:v?'v':'h'}))}
+  }else if(k==='toc'){add(textItem({gen:'scaffold-toc',x:m.x,y:m.y,w:m.w,h:m.h,text:['目次','',...tocLines()].join('\n'),size:10,leading:v?200:170,dir:v?'v':'h'}))}
   else if(k==='body'){add(textItem({x:m.x,y:m.y,w:m.w,h:m.h,text:t&&t!==prevT?t+'\n\n':'',size:9,leading:v?175:170,dir:v?'v':'h'}))}
   else if(k==='illust'){add(imageItem({x:-b,y:-b,w:r1(W+2*b),h:r1(H+2*b),fit:'cover'}))}
-  else if(k==='colophon'){add(textItem({x:m.x,y:r1(m.y+m.h-40),w:m.w,h:40,text:[d.name||'','','発行日　','発行　','印刷　'].join('\n'),font:'Noto Sans JP',size:8,leading:170,dir:'h'}))}
+  else if(k==='colophon'){add(textItem({gen:'scaffold-colophon',x:m.x,y:r1(m.y+m.h-40),w:m.w,h:40,text:[d.name||'','','発行日　','発行　','印刷　'].join('\n'),font:'Noto Sans JP',size:8,leading:170,dir:'h'}))}
 }
 const SHEET_KINDS=[['本文','扉','目次'],['イラスト','奥付','白']];
 async function printSheet(){
