@@ -752,7 +752,8 @@ function drawItem(ctx,it,ch,preview){
       ctx.moveTo(it.x,it.y);ctx.lineTo(it.x+it.w,it.y+it.h);ctx.moveTo(it.x+it.w,it.y);ctx.lineTo(it.x,it.y+it.h);ctx.stroke();ctx.restore();
     }
   }else if(it.type==='text'){
-    if(preview&&S.guides){ctx.save();ctx.strokeStyle=TOK.line;ctx.lineWidth=0.2;ctx.setLineDash([1,1]);ctx.strokeRect(it.x,it.y,it.w,it.h);ctx.restore()}
+    /* PPTXから読み込んだ文字枠は、内側の余白（lIns等）を含めたファイル上の枠を表示する */
+    if(preview&&S.guides){const n=it.src&&it.src.ins||{l:0,t:0,r:0,b:0};ctx.save();ctx.strokeStyle=TOK.line;ctx.lineWidth=0.2;ctx.setLineDash([1,1]);ctx.strokeRect(it.x-n.l,it.y-n.t,it.w+n.l+n.r,it.h+n.t+n.b);ctx.restore()}
     drawText(ctx,it,ch,preview);
   }
 }
@@ -3664,6 +3665,12 @@ async function importPPTXInner(file){
   const xfOf=sp=>{const pr=kid(sp,'spPr',NP)||kid(sp,'grpSpPr',NP),xf=pr&&kid(pr,'xfrm');if(!xf)return null;const o=kid(xf,'off'),e=kid(xf,'ext');if(!o||!e)return null;
     return{x:+o.getAttribute('x'),y:+o.getAttribute('y'),w:+e.getAttribute('cx'),h:+e.getAttribute('cy'),flat:xf}};
   const TF0=(x,y,w,h)=>({x:r1(x/EMU),y:r1(y/EMU),w:r1(w/EMU),h:r1(h/EMU)});
+  /* 余白ガイドは、最初のマスターのタイトルと本文のプレースホルダーを囲む範囲に合わせる（PowerPointのレイアウト枠と揃える） */
+  {const me=pres.getElementsByTagNameNS(NP,'sldMasterId')[0],mp=me&&(prel[me.getAttributeNS(NR,'id')]||{}).target,mx=mp&&await xml(mp);
+    if(mx){let x0=1e15,y0=1e15,x1=-1e15,y1=-1e15;
+      for(const sp of mx.getElementsByTagNameNS(NP,'sp')){const p=phOf(sp);if(!p||!/^(title|body)$/.test(p.type))continue;const g=xfOf(sp);if(!g)continue;
+        x0=Math.min(x0,g.x);y0=Math.min(y0,g.y);x1=Math.max(x1,g.x+g.w);y1=Math.max(y1,g.y+g.h)}
+      if(x1>x0&&y1>y0&&x0>=0&&y0>=0&&x1<=cx&&y1<=cy){const side=r1(Math.min(x0,cx-x1)/EMU);d.margins={top:r1(y0/EMU),bottom:r1((cy-y1)/EMU),inner:side,outer:side}}}}
   // W = {C, rels, out, ids|null(locked)}
   const walk=async(W,tree,tf,inGrp)=>{
     const {C}=W;
