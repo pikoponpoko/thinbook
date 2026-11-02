@@ -108,6 +108,8 @@ a:hover{color:var(--accent-hover);text-decoration-thickness:2px}
 .pfi.hp{grid-template-columns:8px minmax(0,1fr);cursor:default}
 .hpt{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;padding:8px;border:1px solid var(--line);border-radius:var(--r)}
 .hpt>span{color:var(--sub)}
+.pppv{display:block;margin:4px auto;border:1px solid var(--line)}
+#app.k-master #bProp{display:none}
 .hpd{display:flex;flex-direction:column;gap:3px;max-height:180px;overflow:auto;font-family:var(--num);font-size:12px}
 .hps{display:grid;grid-template-columns:24px 1fr 1fr;gap:8px;align-items:center}
 .hps>b{font-weight:400;color:var(--sub);text-align:right}
@@ -438,6 +440,7 @@ textarea#pNotes{width:100%;min-height:100px;resize:vertical;line-height:1.6}
     <button id="bPres">プレゼン練習</button>
     <div class="grp" id="gApps"><button id="bNeta">ネタ帳</button><button id="bSales">頒布</button><button id="bXl">Excel</button></div>
     <button id="bHome" class="bk-only">家庭用印刷</button>
+    <button id="bProp" class="sl-only">企画書印刷</button>
     <button id="bPptx" class="sl-only">PPTX書き出し</button>
     <button id="bExport" class="primary">入稿データ書き出し</button>
   </header>
@@ -758,6 +761,7 @@ function drawItem(ctx,it,ch,preview){
       ctx.save();ctx.strokeStyle=TOK.sub;ctx.lineWidth=0.2;ctx.beginPath();ctx.rect(it.x,it.y,it.w,it.h);
       ctx.moveTo(it.x,it.y);ctx.lineTo(it.x+it.w,it.y+it.h);ctx.moveTo(it.x+it.w,it.y);ctx.lineTo(it.x,it.y+it.h);ctx.stroke();ctx.restore();
     }
+  }else if(it.type==='table'){drawTable(ctx,it,ch,preview)
   }else if(it.type==='text'){
     /* PPTXから読み込んだ文字枠は、内側の余白（lIns等）を含めたファイル上の枠を表示する */
     if(preview&&S.guides){const n=it.src&&it.src.ins||{l:0,t:0,r:0,b:0};ctx.save();ctx.strokeStyle=TOK.line;ctx.lineWidth=0.2;ctx.setLineDash([1,1]);ctx.strokeRect(it.x-n.l,it.y-n.t,it.w+n.l+n.r,it.h+n.t+n.b);ctx.restore()}
@@ -1272,6 +1276,12 @@ function renderProps(){
       ${im&&handles[it.imageId]?(im.lost?`<div class="btns"><button id="bRelink">リンクを再接続</button></div>`:`<div class="ok">リンク中：保存すると自動で更新</div>`):''}</div>`;
   }else if(it.type==='video'){const m=S.media[it.mediaId];
     h+=`<div class="sec"><h3>動画</h3><div class="btns"><button id="bVPick">${m?'動画を差し替え':'動画を選択'}</button>${m?'<button id="bVPlay">再生</button>':''}</div>${m?`<div class="ok">${esc(m.name||'')} ・ ${((m.blob?m.blob.size:m.size||0)/1048576).toFixed(1)}MB</div>`:''}</div>`;
+  }else if(it.type==='table'){const L=it.link||{},open=XL.book()===L.book;
+    h+=`<div class="sec"><h3>表</h3>${L.book?`<div class="ok">${esc(L.book)} ・ ${esc(L.sheet)}</div>`:''}
+      <div class="row">${F('範囲',`<input type="text" id="tbRange" value="${esc(L.range||'')}" spellcheck="false">`)}${F('フォント',SEL('font',it.font,FONTS.some(f=>f[0]===it.font)?FONTS:[...FONTS,[it.font,it.font]]))}${F('サイズ（pt）',N('size',it.size,0.5,'min="1"'))}</div>
+      <div class="btns"><button id="tbSync">${open?'表を更新':'Excel ファイルから更新'}</button>${open?'<button id="tbOpen">Excel で開く</button>':''}<button id="tbFit">行の高さを文字に合わせる</button></div></div>
+    <div class="sec"><h3>文字色</h3>${colorFields('color',it.color)}</div>
+    <div class="sec"><h3><label class="chk"><input type="checkbox" data-null="line" ${it.line?'checked':''}> 罫線</label></h3>${it.line?colorFields('line',it.line)+`<div class="row">${F('線幅（mm）',N('sw',it.sw,0.05,'min="0"'))}</div>`:''}</div>`;
   }else if(it.type==='rect'){
     h+=`<div class="sec"><h3><label class="chk"><input type="checkbox" data-null="fill" ${it.fill?'checked':''}> 塗り</label></h3>${it.fill?colorFields('fill',it.fill):''}</div>
     <div class="sec"><h3><label class="chk"><input type="checkbox" data-null="stroke" ${it.stroke?'checked':''}> 線</label></h3>${it.stroke?colorFields('stroke',it.stroke)+`<div class="row">${F('線幅（mm）',N('sw',it.sw,0.05,'min="0"'))}</div>`:''}</div>`;
@@ -1291,6 +1301,11 @@ function renderProps(){
   }
   $('#aRef').onchange=e=>{S.alignRef=e.target.value};$$('[data-al]').forEach(b=>b.onclick=()=>alignSel(b.dataset.al));
   if($('#bRelink'))$('#bRelink').onclick=()=>relink(it.imageId);
+  if(it.type==='table'){const pi=S.sel.page;
+    $('#tbSync').onclick=async()=>{if(XL.book()===(it.link&&it.link.book)){if(await tblRefresh(it)){dirty(pi);commit();renderProps();toast('表を更新しました')}else toast('範囲を読み込めません')}else $('#fXl').click()};
+    if($('#tbOpen'))$('#tbOpen').onclick=()=>XL.show(true);
+    $('#tbFit').onclick=()=>{it.h=it.size*PT*1.6*it.tbl.cells.length;dirty(pi);commit();drawOverlay(pi);renderProps()};
+    $('#tbRange').onchange=async e=>{if(!it.link)return;it.link.range=e.target.value.trim().toUpperCase();if(XL.book()===it.link.book&&!(await tblRefresh(it)))toast('範囲を読み込めません');dirty(pi);commit();drawOverlay(pi);renderProps()};}
   const vp=$('#bVPick');if(vp)vp.onclick=()=>{vidTarget=it;$('#fVid').click()};const vpl=$('#bVPlay');if(vpl)vpl.onclick=()=>playVideo(it);
   $('#bFront').onclick=()=>order(1);$('#bBack').onclick=()=>order(-1);$('#bDup').onclick=dupSel;$('#bDel').onclick=delSel;
 }
@@ -1968,6 +1983,193 @@ $('#bHome').onclick=()=>{
   $('#h-go').onclick=()=>run(false);$('#h-test').onclick=()=>run(true);
 };
 window.__thinbook_hp={hpPlan,hpChecks};
+/* ---------- 企画書印刷（スライドを用紙に割り付けて PDF） ---------- */
+S.pp={lay:'one',paper:'A4',cover:true,num:true,frame:true,duplex:'simplex',hidden:false};
+const PP_LAYS=[['one','1枚'],['notes','1枚＋ノート'],['three','3枚＋ノート'],['two','2枚'],['four','4枚'],['six','6枚']];
+const PP_KINSOKU='、。，．,.・：；:;？！?!ー－)）]］}｝」』】〕〉》’”…‥ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ々ゝゞヽヾ';
+function ppWrap(mctx,text,font,fs,w){
+  const K=100;mctx.font=`400 ${fs*K}px "${font}", sans-serif`;const mw=s=>mctx.measureText(s).width/K,out=[];
+  for(const para of String(text||'').replace(/\r/g,'').split('\n')){
+    const tk=para.match(/[A-Za-z0-9.,'’\-_/:%&@#()]+ ?| +|[\s\S]/gu)||[];let line='';
+    for(let t of tk){
+      if(mw(line+t)<=w||!line){if(mw(t)>w&&!line){for(const ch of t){if(mw(line+ch)>w&&line&&!PP_KINSOKU.includes(ch)){out.push(line);line=''}line+=ch}}else line+=t;continue}
+      if(t.length===1&&PP_KINSOKU.includes(t)){line+=t;continue}
+      out.push(line.replace(/ +$/,''));line=t.replace(/^ +/,'');
+      if(mw(line)>w){let l2='';for(const ch of line){if(mw(l2+ch)>w&&l2){out.push(l2);l2=''}l2+=ch}line=l2}
+    }
+    out.push(line.replace(/ +$/,''));
+  }
+  while(out.length&&out[out.length-1]==='')out.pop();return out;
+}
+function ppPlan(o,mctx){
+  const d=S.doc,W=pw(d),H=d.trimH,[a,b]=PAPERS[o.paper]||PAPERS.A4;
+  const land=o.lay==='one'||o.lay==='four'||(o.lay==='two'&&W<H);
+  const pW=land?Math.max(a,b):Math.min(a,b),pH=land?Math.min(a,b):Math.max(a,b);
+  const M=12,FT=o.num?9:0,bx=M,by=M,bw=pW-2*M,bh=pH-2*M-FT,font='Noto Sans JP',FS=10.5*PT,LH=1.7;
+  const idx=d.pages.map((_,i)=>i).filter(i=>o.hidden||!d.pages[i].hidden);
+  const fitBox=(x,y,w,h)=>{const s=Math.min(w/W,h/H),fw=W*s,fh=H*s;return{x:x+(w-fw)/2,y:y+(h-fh)/2,w:fw,h:fh}};
+  const pages=[],warn=[];let list=idx.slice();
+  if(o.cover&&list.length){const r=fitBox(bx,by,bw,bh+FT);pages.push({cells:[{i:list[0],...r}],notes:[],cover:true});list=list.slice(1)}
+  const grid=(cols,rows,gap)=>{const cw=(bw-gap*(cols-1))/cols,ch=(bh-gap*(rows-1))/rows;
+    for(let k=0;k<list.length;k+=cols*rows){const cells=[];for(let j=0;j<cols*rows&&k+j<list.length;j++){const c=j%cols,r=Math.floor(j/cols);cells.push({i:list[k+j],...fitBox(bx+c*(cw+gap),by+r*(ch+gap),cw,ch)})}pages.push({cells,notes:[]})}};
+  if(o.lay==='one')grid(1,1,0);
+  else if(o.lay==='two')W<H?grid(2,1,10):grid(1,2,10);
+  else if(o.lay==='four')grid(2,2,8);
+  else if(o.lay==='six')grid(2,3,8);
+  else if(o.lay==='notes'){
+    for(const i of list){
+      const sh=Math.min(bh*0.45,bw*H/W),r=fitBox(bx,by,bw,sh),ny=r.y+r.h+8,lines=ppWrap(mctx,noteOf(i),font,FS,bw),per=Math.max(1,Math.floor((by+bh-ny)/(FS*LH)));
+      pages.push({cells:[{i,...r}],notes:[{x:bx,y:ny,w:bw,fs:FS,lh:LH,font,lines:lines.slice(0,per)}]});
+      let rest=lines.slice(per);const per2=Math.max(1,Math.floor(bh/(FS*LH)));
+      while(rest.length){pages.push({cells:[],notes:[{x:bx,y:by,w:bw,fs:FS,lh:LH,font,lines:rest.slice(0,per2)}]});rest=rest.slice(per2)}
+    }
+  }else if(o.lay==='three'){
+    const rows=3,gap=8,rh=(bh-gap*(rows-1))/rows,sw=Math.min(bw*0.5,rh*W/H),nx=bx+sw+6,nw=bw-sw-6,over=[];
+    for(let k=0;k<list.length;k+=rows){const cells=[],notes=[];
+      for(let j=0;j<rows&&k+j<list.length;j++){const i=list[k+j],y=by+j*(rh+gap),r=fitBox(bx,y,sw,rh);cells.push({i,...r});
+        let fs=FS,lines;for(;;){lines=ppWrap(mctx,noteOf(i),font,fs,nw);if(lines.length*fs*LH<=rh||fs<=7*PT)break;fs-=0.5*PT}
+        const per=Math.floor(rh/(fs*LH));if(lines.length>per){over.push(i+1);lines=lines.slice(0,per);if(per)lines[per-1]=lines[per-1].replace(/.$/u,'…')}
+        notes.push({x:nx,y,w:nw,fs,lh:LH,font,lines})}
+      pages.push({cells,notes})}
+    if(over.length)warn.push(`ノートが入りきらないスライドがあります（${over.slice(0,8).join('、')}${over.length>8?` ほか${over.length-8}`:''}）。「1枚＋ノート」なら続きのページに印刷します`);
+  }
+  let n=0;for(const p of pages)if(!p.cover)p.num=++n;
+  return{pW,pH,land,pages,warn,font,count:idx.length};
+}
+function ppDrawPage(ctx,P,pg,o){
+  const d=S.doc,W=pw(d),H=d.trimH;
+  ctx.save();ctx.fillStyle='#ffffff';ctx.fillRect(0,0,P.pW,P.pH);
+  for(const c of pg.cells){
+    ctx.save();ctx.beginPath();ctx.rect(c.x,c.y,c.w,c.h);ctx.clip();ctx.translate(c.x,c.y);ctx.scale(c.w/W,c.h/H);
+    drawPage(ctx,c.i,{preview:false,guides:false});ctx.restore();
+    if(o.frame&&!pg.cover){ctx.strokeStyle='#000000';ctx.lineWidth=0.2;ctx.strokeRect(c.x,c.y,c.w,c.h)}
+  }
+  const K=100;ctx.fillStyle='#000000';ctx.textBaseline='middle';ctx.textAlign='left';
+  for(const n of pg.notes){
+    n.lines.forEach((l,j)=>{if(!l)return;ctx.save();ctx.translate(n.x,n.y+n.fs*n.lh*(j+0.5));ctx.scale(1/K,1/K);ctx.font=`400 ${n.fs*K}px "${n.font}", sans-serif`;ctx.fillText(l,0,0);ctx.restore()});
+  }
+  if(o.num&&pg.num){ctx.save();ctx.translate(P.pW/2,P.pH-12+4.5);ctx.scale(1/K,1/K);ctx.textAlign='center';ctx.textBaseline='middle';ctx.font=`400 ${9*PT*K}px "Noto Sans JP", sans-serif`;ctx.fillText(String(pg.num),0,0);ctx.restore()}
+  ctx.restore();
+}
+async function ppRender(P,o,progress){
+  await ensureFonts();
+  let dpi=300;while((P.pW*dpi/25.4)*(P.pH*dpi/25.4)>16e6)dpi-=25;
+  const k=dpi/25.4,cv=document.createElement('canvas');cv.width=Math.round(P.pW*k);cv.height=Math.round(P.pH*k);
+  const ctx=cv.getContext('2d'),out=[];
+  for(let j=0;j<P.pages.length;j++){
+    if(exporting==='cancel')return null;
+    ctx.setTransform(k,0,0,k,0,0);ppDrawPage(ctx,P,P.pages[j],o);
+    const bl=await new Promise(r=>cv.toBlob(r,'image/jpeg',0.92));
+    out.push({w:P.pW,h:P.pH,px:[cv.width,cv.height],jpg:new Uint8Array(await bl.arrayBuffer())});
+    sepCache.clear();progress&&progress(j+1,P.pages.length);await new Promise(r=>setTimeout(r,0));
+  }
+  return out;
+}
+async function ppFonts(){const t=S.doc.pages.map((_,i)=>noteOf(i)).join('')+'0123456789…';
+  await Promise.all([document.fonts.load('400 20px "Noto Sans JP"',t||'あ').catch(()=>{})]);await document.fonts.ready}
+$('#bProp').onclick=async()=>{
+  const d=S.doc,o=S.pp,hasHidden=d.pages.some(p=>p.hidden);
+  const dlg=modal(`<h2>企画書印刷</h2>
+    <div class="row">
+      ${F('割付',`<select id="pp-lay">${PP_LAYS.map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>`)}
+      ${F('用紙',`<select id="pp-paper">${['A4','B5','A3','レター'].map(k=>`<option value="${k}">${k}</option>`).join('')}</select>`)}
+      ${F('両面','<select id="pp-dup"><option value="simplex">片面</option><option value="long">両面（長辺とじ）</option><option value="short">両面（短辺とじ）</option></select>')}
+    </div>
+    <div class="btns">
+      <label class="chk"><input type="checkbox" id="pp-cover"> 1枚目を表紙にする</label>
+      <label class="chk"><input type="checkbox" id="pp-num"> ページ番号</label>
+      <label class="chk"><input type="checkbox" id="pp-frame"> 枠線</label>
+      ${hasHidden?'<label class="chk"><input type="checkbox" id="pp-hidden"> 非表示スライドも印刷</label>':''}
+    </div>
+    <canvas id="pp-pv" class="pppv"></canvas>
+    <div id="pp-sum"></div>
+    <div class="prog" id="pp-prog" hidden><div></div></div><div class="ok" id="pp-msg"></div>
+    <div class="foot"><button id="pp-cancel">閉じる</button><button class="primary" id="pp-go">書き出し</button></div>`);
+  const set=(id,v)=>{const e=$(id);if(e){if(e.type==='checkbox')e.checked=v;else e.value=v}};
+  set('#pp-lay',o.lay);set('#pp-paper',o.paper);set('#pp-dup',o.duplex);set('#pp-cover',o.cover);set('#pp-num',o.num);set('#pp-frame',o.frame);set('#pp-hidden',o.hidden);
+  const mctx=document.createElement('canvas').getContext('2d');let P;
+  const read=()=>{const g=id=>{const e=$(id);return e?(e.type==='checkbox'?e.checked:e.value):false};
+    Object.assign(o,{lay:g('#pp-lay'),paper:g('#pp-paper'),duplex:g('#pp-dup'),cover:g('#pp-cover'),num:g('#pp-num'),frame:g('#pp-frame'),hidden:g('#pp-hidden')})};
+  const upd=()=>{read();P=ppPlan(o,mctx);
+    const pv=$('#pp-pv'),pg=P.pages.find(p=>!p.cover)||P.pages[0];
+    if(pg){const hpx=220,s=hpx/P.pH,r=Math.min(2,devicePixelRatio||1);pv.style.width=Math.round(P.pW*s)+'px';pv.style.height=hpx+'px';pv.width=Math.round(P.pW*s*r);pv.height=Math.round(hpx*r);
+      const c=pv.getContext('2d');c.setTransform(s*r,0,0,s*r,0,0);ppDrawPage(c,P,pg,o)}
+    const dup=o.duplex==='simplex'?'片面':`両面・${o.duplex==='long'?'長辺とじ':'短辺とじ'}`;
+    $('#pp-sum').innerHTML=`<div class="hpt"><span>用紙</span><b>${o.paper} ${P.land?'横':'縦'}</b><span>倍率</span><b>実際のサイズ（100%）</b><span>両面</span><b>${dup}</b><span>ページ数</span><b>${P.pages.length}ページ（スライド ${P.count}枚）</b></div>
+      ${P.warn.length?`<div class="pf">${P.warn.map(m=>`<div class="pfi hp warn"><i></i><span>${esc(m)}</span></div>`).join('')}</div>`:''}`;
+  };
+  dlg.addEventListener('change',upd);upd();ppFonts().then(()=>{if(dlg.isConnected)upd()});
+  $('#pp-cancel').onclick=()=>{if(exporting){exporting='cancel';return}closeModal()};
+  $('#pp-go').onclick=async()=>{
+    read();await ppFonts();P=ppPlan(o,mctx);if(!P.pages.length){$('#pp-msg').textContent='印刷するスライドがありません';return}
+    $('#pp-go').disabled=true;$('#pp-prog').hidden=false;exporting=true;
+    try{
+      const pages=await ppRender(P,o,(k,t)=>{$('#pp-prog').firstChild.style.width=(k/t*100)+'%';$('#pp-msg').textContent=`処理中：${k} / ${t}ページ`});
+      if(!pages)$('#pp-msg').textContent='中止しました';
+      else{const blob=jpegPDF(pages,o.duplex);$('#pp-msg').textContent=`完了：${(blob.size/1048576).toFixed(1)}MB`;await saveFile((d.name||'無題')+'_企画書.pdf',blob)}
+    }catch(err){console.error(err);$('#pp-msg').textContent='書き出しに失敗しました：'+(err.message||err)}
+    exporting=false;$('#pp-go').disabled=false;
+  };
+};
+window.__thinbook_pp={ppPlan,ppWrap};
+
+/* ---------- 表（Excel の範囲を差し込み、元の表の変更を反映） ---------- */
+function tableItem(o){return Object.assign({id:uid(),type:'table',x:0,y:0,w:100,h:40,font:'Noto Sans JP',size:10,color:{c:0,m:0,y:0,k:100},line:{c:0,m:0,y:0,k:100},sw:0.2,link:null,tbl:{cells:[[{t:''}]],cw:[1],rh:[1]}},o)}
+function tblGrid(it){const T=it.tbl,sw=T.cw.reduce((a,b)=>a+b,0)||1,sh=T.rh.reduce((a,b)=>a+b,0)||1,X=[it.x],Y=[it.y];
+  for(const w of T.cw)X.push(X[X.length-1]+w/sw*it.w);for(const h of T.rh)Y.push(Y[Y.length-1]+h/sh*it.h);return{X,Y}}
+function drawTable(ctx,it,ch,preview){
+  const T=it.tbl;if(!T||!T.cells.length){return}
+  const{X,Y}=tblGrid(it),fs=it.size*PT,pad=Math.min(1.5,fs*0.35),K=100;
+  ctx.save();ctx.fillStyle=col(it.color,ch);ctx.textBaseline='middle';
+  T.cells.forEach((row,r)=>row.forEach((c,k)=>{
+    if(c.skip||!c.t)return;const x0=X[k],x1=X[Math.min(k+(c.cs||1),X.length-1)],y0=Y[r],y1=Y[Math.min(r+(c.rs||1),Y.length-1)],w8=c.b?700:400;
+    needFont(it.font,w8,c.t);const ls=String(c.t).split('\n'),a=c.a;
+    ctx.save();ctx.beginPath();ctx.rect(x0,y0,x1-x0,y1-y0);ctx.clip();
+    ctx.translate(a==='r'?x1-pad:a==='c'?(x0+x1)/2:x0+pad,(y0+y1)/2-(ls.length-1)*fs*0.6);ctx.scale(1/K,1/K);
+    ctx.font=`${w8} ${fs*K}px "${it.font}", sans-serif`;ctx.textAlign=a==='r'?'right':a==='c'?'center':'left';
+    ls.forEach((l,j)=>ctx.fillText(l,0,j*fs*1.2*K));ctx.restore();
+  }));
+  if(it.line&&it.sw>0){ctx.strokeStyle=col(it.line,ch);ctx.lineWidth=it.sw;ctx.beginPath();
+    T.cells.forEach((row,r)=>row.forEach((c,k)=>{if(c.skip)return;const x0=X[k],x1=X[Math.min(k+(c.cs||1),X.length-1)],y0=Y[r],y1=Y[Math.min(r+(c.rs||1),Y.length-1)];ctx.rect(x0,y0,x1-x0,y1-y0)}));ctx.stroke()}
+  else if(preview&&S.guides){ctx.strokeStyle=TOK.line;ctx.lineWidth=0.2;ctx.setLineDash([1,1]);ctx.strokeRect(it.x,it.y,it.w,it.h)}
+  ctx.restore();
+}
+function tblItems(fn){const d=S.doc,out=[];if(!d)return out;d.pages.forEach((pg,i)=>pg.items.forEach(it=>{if(it.type==='table'&&(!fn||fn(it)))out.push({it,i})}));return out}
+async function tblRefresh(it){const s=await XL.snap(it.link.sheet,it.link.range);if(!s)return false;
+  const prev=it.tbl,sameShape=prev&&prev.cells.length===s.cells.length&&prev.cw.length===s.cw.length;
+  if(!sameShape){const fs=it.size*PT;it.h=Math.max(fs*1.6*s.cells.length,5)}
+  it.tbl=s;return true}
+let tbSyncT=0;
+window.tbXlChanged=now=>{clearTimeout(tbSyncT);tbSyncT=setTimeout(async()=>{
+  const bk=XL.book();if(!bk)return;const hits=tblItems(it=>it.link&&it.link.book===bk);if(!hits.length)return;let k=0;
+  for(const{it,i}of hits)if(await tblRefresh(it)){k++;dirty(i)}
+  if(k){commit();if(S.sel&&selItem()&&selItem().type==='table')renderProps();if(now)toast(`表を更新しました（${k}件）`)}
+},now?0:400)};
+function tblInsertDialog(){
+  const cur=XL.curSel();if(!cur){toast('Excel ブックを開いてください');return}
+  const d=S.doc,names=XL.sheetNames();
+  const dlg=modal(`<h2>書類に差し込む</h2>
+    <div class="row">${F('シート',`<select id="ti-sheet">${names.map(n=>`<option${n===cur.sheet?' selected':''}>${esc(n)}</option>`).join('')}</select>`)}
+    ${F('範囲',`<input type="text" id="ti-range" value="${esc(cur.range)}" spellcheck="false">`)}
+    ${F(d.kind==='slide'?'スライド':'ページ',`<select id="ti-page">${d.kind==='slide'&&!d.pptx?'<option value="new" selected>新しいスライド</option>':''}${d.pages.map((_,i)=>`<option value="${i}"${i===S.page&&(d.kind!=='slide'||d.pptx)?' selected':''}>${d.kind==='slide'?i+1:esc(nombreText(i))}</option>`).join('')}</select>`)}</div>
+    <div class="ok" id="ti-msg"></div>
+    <div class="foot"><button id="ti-cancel">閉じる</button><button class="primary" id="ti-go">差し込む</button></div>`);
+  $('#ti-cancel').onclick=closeModal;
+  $('#ti-go').onclick=async()=>{
+    const link={book:XL.book(),sheet:$('#ti-sheet').value,range:$('#ti-range').value.trim().toUpperCase()},pv=$('#ti-page').value;
+    const s=await XL.snap(link.sheet,link.range);if(!s){$('#ti-msg').textContent='範囲を読み込めません（例：A1:F20、4000セルまで）';return}
+    const sl=d.kind==='slide',W=pw(d),H=d.trimH;let pi=+pv,m;
+    if(pv==='new'){const pg=makeSlide('content',{title:link.sheet}),bd=pg.items.find(x=>x.slot==='body');pi=Math.min(S.page+1,d.pages.length);d.pages.splice(pi,0,pg);
+      if(bd){pg.items.splice(pg.items.indexOf(bd),1);m={x:bd.x,y:bd.y,w:bd.w,h:bd.h}}rebuild()}
+    if(!m)m=sl?{x:W*0.08,y:H*0.18,w:W*0.84,h:H*0.74}:margBox(pi);
+    const size=sl?Math.max(9,Math.min(16,m.h/PT/1.7/s.cells.length)):8,fs=size*PT,T=sl?theme():null;
+    const h=Math.min(m.h,fs*1.7*s.cells.length),it=tableItem({x:m.x,y:m.y,w:m.w,h,size:Math.round(size*2)/2,link,tbl:s});
+    if(T)Object.assign(it,{font:T.body,color:hexC(T.ink),line:hexC(T.ink)});
+    d.pages[pi].items.push(it);closeModal();XL.show(false);if(S.page!==pi&&typeof centerStage==='function'){setPage(pi);centerStage(pi)}
+    dirty(pi);commit();select(pi,it.id);toast('表を差し込みました。Excel で直すと反映されます');
+  };
+}
+
 
 /* ---------- event sales (頒布) ---------- */
 const SV={data:{events:[]},ev:null,tab:'pos',cart:{},paid:null,loaded:false};
@@ -3648,10 +3850,21 @@ async function imageBytes(id){
   const c=document.createElement('canvas');c.width=im.w;c.height=im.h;c.getContext('2d').drawImage(im.img,0,0);
   const b=await new Promise(r=>c.toBlob(r,'image/png'));return{ext:'png',u8:new Uint8Array(await b.arrayBuffer())};
 }
+function spTable(id,it){
+  const T=it.tbl,{X:gx,Y:gy}=tblGrid(it),nr=T.cells.length,nc=T.cw.length,own=new Map();
+  T.cells.forEach((row,r)=>row.forEach((c,k)=>{if(c.skip)return;for(let a=0;a<(c.rs||1);a++)for(let b=0;b<(c.cs||1);b++)if(a||b)own.set((r+a)+':'+(k+b),{r,k})}));
+  const ln=t=>it.line&&it.sw>0?`<a:${t} w="${E(it.sw)}">${solid(it.line)}</a:${t}>`:`<a:${t} w="0"><a:noFill/></a:${t}>`,bd=ln('lnL')+ln('lnR')+ln('lnT')+ln('lnB');
+  const rows=T.cells.map((row,r)=>`<a:tr h="${E(gy[r+1]-gy[r])}">`+row.map((c,k)=>{
+    if(c.skip){const o=own.get(r+':'+k);const at=o?(o.r===r?' hMerge="1"':o.k===k?' vMerge="1"':' hMerge="1" vMerge="1"'):'';return `<a:tc${at}><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="ja-JP"/></a:p></a:txBody><a:tcPr/></a:tc>`}
+    const rp=`<a:rPr lang="ja-JP" sz="${Math.round(it.size*100)}"${c.b?' b="1"':''} dirty="0">${solid(it.color)}<a:latin typeface="${X(it.font)}"/><a:ea typeface="${X(it.font)}"/></a:rPr>`;
+    const ps=String(c.t||'').split('\n').map(l=>`<a:p><a:pPr algn="${c.a==='r'?'r':c.a==='c'?'ctr':'l'}"/>${l?`<a:r>${rp}<a:t>${X(l)}</a:t></a:r>`:''}<a:endParaRPr lang="ja-JP" sz="${Math.round(it.size*100)}"/></a:p>`).join('');
+    return `<a:tc${c.cs>1?` gridSpan="${c.cs}"`:''}${c.rs>1?` rowSpan="${c.rs}"`:''}><a:txBody><a:bodyPr/><a:lstStyle/>${ps}</a:txBody><a:tcPr marL="${E(1)}" marR="${E(1)}" marT="0" marB="0" anchor="ctr">${bd}<a:noFill/></a:tcPr></a:tc>`}).join('')+'</a:tr>').join('');
+  return `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${id}" name="表 ${id}"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="${E(it.x)}" y="${E(it.y)}"/><a:ext cx="${E(it.w)}" cy="${E(it.h)}"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr firstRow="0" bandRow="0"/><a:tblGrid>${gx.slice(1).map((x,k)=>`<a:gridCol w="${E(x-gx[k])}"/>`).join('')}</a:tblGrid>${rows}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`}
 async function itemsXml(items,ctx){let out='';
   for(const it of items){
     if(it.type==='rect'){if(it.fill||it.stroke)out+=spRect(ctx.id(),it)}
     else if(it.type==='text'){if(String(it.text).trim())out+=spText(ctx.id(),it)}
+    else if(it.type==='table'){if(it.tbl&&it.tbl.cells.length)out+=spTable(ctx.id(),it)}
     else if(it.type==='image'&&it.imageId&&S.images[it.imageId]){const rid=await ctx.img(it.imageId);out+=spPic(ctx.id(),it,rid,S.images[it.imageId])}
     else if(it.type==='video'&&it.mediaId&&S.media[it.mediaId]&&it.posterId&&S.images[it.posterId]){const v=await ctx.video(it.mediaId),rp=await ctx.img(it.posterId);out+=spVideo(ctx.id(),it,v.embed,v.link,rp,S.images[it.posterId])}
   }
@@ -4100,6 +4313,7 @@ window.__thinbook={S,exportPPTX,importPPTX,parseOutline,applyOutline,createSlide
 .xt td.xn{text-align:right}
 .xt td.xf{color:var(--sub)}
 .xt td.sel{outline:2px solid var(--accent);outline-offset:-2px}
+.xt td.rg{background:var(--accentSoft,var(--panel))}
 .xt td.xw{white-space:pre-wrap;vertical-align:top}
 .xt th.hl{color:var(--ink);font-weight:700}
 #xlTabs{display:flex;gap:0;overflow-x:auto;border-top:1px solid var(--line);background:var(--panel);padding-left:max(0px,env(safe-area-inset-left,0px));padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -4112,6 +4326,7 @@ window.__thinbook={S,exportPPTX,importPPTX,parseOutline,applyOutline,createSlide
   <header>
     <button id="xlBack">← 冊子</button>
     <div class="grp"><button id="xlOpen">開く</button><button id="xlSave" class="primary" disabled>保存</button></div>
+    <button id="xlIns" disabled>書類に差し込む</button>
     <div class="grp"><button id="xlUndo" disabled aria-label="取り消し" title="取り消し Ctrl+Z">↶</button><button id="xlRedo" disabled aria-label="やり直し" title="やり直し Ctrl+Shift+Z">↷</button></div>
     <span id="xlName"></span>
   </header>
@@ -4176,7 +4391,7 @@ const XL=(()=>{
   const RT='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
   const XMLNS='http://www.w3.org/XML/1998/namespace';
   const MAXR=5000,MAXC=300;
-  const X={file:null,sheets:[],cur:-1,sel:{r:1,c:1},undo:[],redo:[],dirty:false,fchg:false};
+  const X={file:null,sheets:[],cur:-1,sel:{r:1,c:1},rend:null,undo:[],redo:[],dirty:false,fchg:false};
   const td=new TextDecoder(),te=new TextEncoder();
   const kid=(el,n)=>{if(!el)return null;for(const k of el.children)if(k.localName===n)return k;return null};
   const kids=(el,n)=>el?[...el.children].filter(k=>k.localName===n):[];
@@ -4245,7 +4460,8 @@ const XL=(()=>{
     if(!X.sheets.length)throw new Error('編集できるシートがありません');
     X.undo=[];X.redo=[];X.dirty=false;X.fchg=false;X.sel={r:1,c:1};
     const first=X.sheets.findIndex(s=>!s.hidden);await showSheet(first<0?0:first);
-    $('#xlSave').disabled=false;$('#xlIn').disabled=false;$('#xlName').textContent=file.name;tabs();hist();
+    $('#xlSave').disabled=false;$('#xlIns').disabled=false;$('#xlIn').disabled=false;$('#xlName').textContent=file.name;tabs();hist();
+    if(window.tbXlChanged)window.tbXlChanged(true);
   }
   function siText(si){let s='';for(const k of si.children){if(k.localName==='t')s+=k.textContent;else if(k.localName==='r'){const t=kid(k,'t');if(t)s+=t.textContent}}return s}
   async function load(sh){
@@ -4270,8 +4486,68 @@ const XL=(()=>{
     const m=sharedMaster(sh,f);if(!m)return'';const p=parseRef(m.getAttribute('r')),q=parseRef(c.getAttribute('r'));return shiftF(kid(m,'f').textContent,q.r-p.r,q.c-p.c)}
   function shiftF(f,dr,dc){return f.replace(/"(?:[^"]|"")*"|'(?:[^']|'')*'|(?<![A-Za-z0-9_.])(\$?)([A-Z]{1,3})(\$?)(\d+)(?![A-Za-z0-9_(!])/g,(m,a,col,b,row)=>{
     if(col===undefined)return m;const c=a?colNum(col):colNum(col)+dc,r=b?+row:+row+dr;if(c<1||r<1)return'#REF!';return a+colName(c)+b+r})}
+  /* ----- formula evaluation (表示用。保存時は Excel の再計算に任せる) ----- */
+  const EV=new Map(),EVING=new Set();
+  function sheetByName(n){const s=X.sheets.find(x=>x.name.toLowerCase()===n.toLowerCase());if(!s||!s.doc)throw 0;return s}
+  function rawVal(sh,c){if(!c)return null;const t=c.getAttribute('t')||'n',v=kid(c,'v'),vs=v?v.textContent:'';
+    if(t==='s')return X.ss[+vs]??'';if(t==='inlineStr'){const is=kid(c,'is');return is?siText(is):''}
+    if(t==='b')return vs==='1';if(t==='e')throw 0;if(t==='str')return vs;return vs===''?null:+vs}
+  function cellVal(sh,r,c){const k=X.sheets.indexOf(sh)+':'+r+':'+c;if(EV.has(k))return EV.get(k);
+    const el=sh.cells.get(r+':'+c);let v;
+    if(el&&kid(el,'f')){if(EVING.has(k))throw 0;EVING.add(k);try{v=evalF(sh,formulaOf(sh,el))}finally{EVING.delete(k)}if(v&&v.rg)v=rgFirst(v)}
+    else v=rawVal(sh,el);
+    EV.set(k,v);return v}
+  function rgFirst(g){return cellVal(g.sh,g.r1,g.c1)}
+  function rgVals(g){const out=[];for(let r=g.r1;r<=g.r2;r++)for(let c=g.c1;c<=g.c2;c++)if(g.sh.cells.has(r+':'+c))out.push(cellVal(g.sh,r,c));return out}
+  function evalF(sh,src){
+    const re=/\s+|("(?:[^"]|"")*")|((?:'(?:[^']|'')+'|[^\s!'"(),:+\-*\/^&=<>%{}]+)!)?(\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?|\$?[A-Z]{1,3}:\$?[A-Z]{1,3})(?![A-Za-z0-9_(])|(\d+\.?\d*(?:[eE][-+]?\d+)?|\.\d+)|([A-Za-z_][A-Za-z0-9_.]*)\s*\(|(TRUE|FALSE)(?![A-Za-z0-9_(])|(<>|<=|>=|[-+*\/^&=<>%(),])/gy;
+    const T=[];let m;re.lastIndex=0;while(re.lastIndex<src.length){const at=re.lastIndex;m=re.exec(src);if(!m||re.lastIndex===at)throw 0;
+      if(m[1])T.push({s:m[1].slice(1,-1).replace(/""/g,'"')});else if(m[3])T.push({ref:m[3],sh:m[2]?m[2].slice(0,-1).replace(/^'|'$/g,'').replace(/''/g,"'"):null});
+      else if(m[4])T.push({n:+m[4]});else if(m[5])T.push({fn:m[5].toUpperCase().replace(/^_XLFN\./,'')});else if(m[6])T.push({b:m[6]==='TRUE'});else if(m[7])T.push({op:m[7]})}
+    let i=0;const pk=()=>T[i],isOp=o=>T[i]&&T[i].op===o;
+    const num=v=>{if(v&&v.rg)v=rgFirst(v);if(v==null||v==='')return 0;if(typeof v==='boolean')return+v;if(typeof v==='number')return v;const n=+String(v).replace(/,/g,'');if(isNaN(n))throw 0;return n};
+    const str=v=>{if(v&&v.rg)v=rgFirst(v);if(v==null)return'';if(typeof v==='boolean')return v?'TRUE':'FALSE';return String(v)};
+    const scal=v=>v&&v.rg?rgFirst(v):v;
+    const nums=args=>{const o=[];for(const a of args){if(a&&a.rg){for(const v of rgVals(a))if(typeof v==='number')o.push(v)}else o.push(num(a))}return o};
+    const rnd=(x,d,f)=>{const p=Math.pow(10,d||0),y=Math.abs(x)*p;const z=f==='up'?Math.ceil(y-1e-9):f==='down'?Math.floor(y+1e-9):Math.round(y+1e-9);return Math.sign(x)*z/p};
+    const FN={SUM:a=>nums(a).reduce((x,y)=>x+y,0),AVERAGE:a=>{const n=nums(a);if(!n.length)throw 0;return n.reduce((x,y)=>x+y,0)/n.length},
+      MIN:a=>{const n=nums(a);return n.length?Math.min(...n):0},MAX:a=>{const n=nums(a);return n.length?Math.max(...n):0},
+      COUNT:a=>nums(a).length,COUNTA:a=>a.reduce((k,x)=>k+(x&&x.rg?rgVals(x).filter(v=>v!=null&&v!=='').length:1),0),
+      PRODUCT:a=>nums(a).reduce((x,y)=>x*y,1),ROUND:a=>rnd(num(a[0]),num(a[1])),ROUNDUP:a=>rnd(num(a[0]),num(a[1]),'up'),ROUNDDOWN:a=>rnd(num(a[0]),num(a[1]),'down'),
+      INT:a=>Math.floor(num(a[0])),ABS:a=>Math.abs(num(a[0])),AND:a=>a.every(x=>!!num(x)),OR:a=>a.some(x=>!!num(x)),NOT:a=>!num(a[0])};
+    const ERR={err:1};
+    function arg(){const s0=i;try{return expr()}catch(e){i=s0;let dep=0;while(i<T.length){const t=T[i];if(dep===0&&(t.op===','||t.op===')'))break;if(t.op==='('||t.fn)dep++;else if(t.op===')')dep--;i++}return ERR}}
+    function call(name){const args=[];
+      if(!isOp(')'))for(;;){args.push(isOp(',')||isOp(')')?null:arg());if(isOp(',')){i++;continue}break}
+      if(!isOp(')'))throw 0;i++;
+      const ok=v=>{if(v===ERR)throw 0;return v};
+      if(name==='IF'){const c=num(ok(args[0]));return c?ok(args[1]??true):(args.length>2?ok(args[2]??0):false)}
+      if(name==='IFERROR')return args[0]===ERR?ok(args[1]??0):args[0];
+      const f=FN[name];if(!f)throw 0;args.forEach(ok);return f(args)}
+    function prim(){const t=T[i++];if(!t)throw 0;
+      if('n'in t)return t.n;if('s'in t)return t.s;if('b'in t)return t.b;
+      if(t.ref){const s2=t.sh?sheetByName(t.sh):sh;const[a,b]=t.ref.replace(/\$/g,'').split(':');
+        if(/^[A-Z]+$/.test(a)){const c1=colNum(a),c2=colNum(b);return{rg:1,sh:s2,r1:1,c1:Math.min(c1,c2),r2:s2.maxR,c2:Math.max(c1,c2)}}
+        const p=parseRef(a),q=b?parseRef(b):null;if(!q)return cellVal(s2,p.r,p.c);
+        return{rg:1,sh:s2,r1:Math.min(p.r,q.r),c1:Math.min(p.c,q.c),r2:Math.max(p.r,q.r),c2:Math.max(p.c,q.c)}}
+      if(t.fn)return call(t.fn);
+      if(t.op==='('){const v=expr();if(!isOp(')'))throw 0;i++;return v}
+      if(t.op==='-')return-num(unary());if(t.op==='+')return num(unary());throw 0}
+    function unary(){if(isOp('-')){i++;return-num(unary())}if(isOp('+')){i++;return num(unary())}let v=prim();while(isOp('%')){i++;v=num(v)/100}return v}
+    function pow(){let v=unary();while(isOp('^')){i++;v=Math.pow(num(v),num(unary()))}return v}
+    function mul(){let v=pow();while(isOp('*')||isOp('/')){const o=T[i++].op,w=num(pow());if(o==='/'&&w===0)throw 0;v=o==='*'?num(v)*w:num(v)/w}return v}
+    function add(){let v=mul();while(isOp('+')||isOp('-')){const o=T[i++].op,w=num(mul());v=o==='+'?num(v)+w:num(v)-w}return v}
+    function cat(){let v=add();while(isOp('&')){i++;v=str(v)+str(add())}return v}
+    function expr(){let v=cat();while(pk()&&['=','<>','<','>','<=','>='].includes(pk().op)){const o=T[i++].op;let a=scal(v),b=scal(cat());
+      if(typeof a==='string'&&typeof b==='string'){a=a.toLowerCase();b=b.toLowerCase()}else if(typeof a!=='string'&&typeof b!=='string'){a=num(a);b=num(b)}
+      v={'=':a===b,'<>':a!==b,'<':a<b,'>':a>b,'<=':a<=b,'>=':a>=b}[o]}return v}
+    const v=expr();if(i!==T.length)throw 0;return v}
   function display(sh,c){
     if(!c)return{t:'',n:false};const t=c.getAttribute('t')||'n',v=kid(c,'v'),vs=v?v.textContent:'',f=kid(c,'f');
+    if(f){const p=parseRef(c.getAttribute('r'));let r;try{r=cellVal(sh,p.r,p.c)}catch(e){r=undefined}
+      if(typeof r==='number'&&isFinite(r))return{t:fmtNum(String(+r.toPrecision(15)),+(c.getAttribute('s')||0)),n:true,fv:1};
+      if(typeof r==='boolean')return{t:r?'TRUE':'FALSE',n:true,center:true,fv:1};
+      if(typeof r==='string')return{t:r,fv:1}}
     if(f&&(!v||vs===''))return{t:'='+formulaOf(sh,c),f:true};
     if(t==='s')return{t:X.ss[+vs]??''};
     if(t==='inlineStr'){const is=kid(c,'is');return{t:is?siText(is):''}}
@@ -4323,12 +4599,12 @@ const XL=(()=>{
     else if(X.sst){el.setAttribute('t','s');add('v',String(strIndex(text)))}
     else{el.setAttribute('t','inlineStr');const is=sh.doc.createElementNS(sh.ns,'is'),t=sh.doc.createElementNS(sh.ns,'t');if(/^\s|\s$|\n/.test(text))t.setAttributeNS(XMLNS,'xml:space','preserve');t.textContent=text;is.append(t);el.append(is)}
     fixRow(sh,r);fixDim(sh,r,c);touch(sh)}
-  function touch(sh){sh.dirty=true;X.dirty=true;tabs();hist()}
+  function touch(sh){sh.dirty=true;X.dirty=true;EV.clear();tabs();hist();if(window.tbXlChanged)window.tbXlChanged()}
   function restoreCell(it){const sh=X.sheets[it.sh],cur=sh.cells.get(it.r+':'+it.c);const snap=cur?cur.cloneNode(true):null;
     if(it.el){const n=it.el.cloneNode(true);if(cur)cur.replaceWith(n);else{const row=rowOf(sh,it.r,true);let nx=null;for(const k of kids(row,'c'))if(parseRef(k.getAttribute('r')).c>it.c){nx=k;break}row.insertBefore(n,nx)}sh.cells.set(it.r+':'+it.c,n)}
     else if(cur){cur.remove();sh.cells.delete(it.r+':'+it.c)}
     X.fchg=true;touch(sh);return{sh:it.sh,r:it.r,c:it.c,el:snap}}
-  async function stepHist(from,to){if(!from.length)return;const it=from.pop();to.push(restoreCell(it));if(X.cur!==it.sh)await showSheet(it.sh);X.sel={r:it.r,c:it.c};refreshCell(it.r,it.c);markSel();hist();focusEd()}
+  async function stepHist(from,to){if(!from.length)return;const it=from.pop();to.push(restoreCell(it));if(X.cur!==it.sh)await showSheet(it.sh);X.sel={r:it.r,c:it.c};refreshCell(it.r,it.c);refreshF();markSel();hist();focusEd()}
 
   /* ----- save ----- */
   async function save(){
@@ -4352,7 +4628,7 @@ const XL=(()=>{
   /* ----- view ----- */
   const grid=()=>$('#xlGrid');
   function colPx(sh,c){const col=sh.cols.find(x=>c>=x.min&&c<=x.max);if(col&&col.hidden)return 0;const w=col&&col.w?col.w:sh.defW;return Math.max(8,Math.round(w*7+5))}
-  async function showSheet(i){commitInput();X.cur=i;const sh=X.sheets[i];await load(sh);render();tabs()}
+  async function showSheet(i){commitInput();X.cur=i;X.rend=null;const sh=X.sheets[i];await load(sh);render();tabs()}
   function cls(sh,c,d){const xf=c?X.xfs[+(c.getAttribute('s')||0)]:null;const fo=xf?X.fonts[xf.fontId]:null;let k=[];
     if(d.f)k.push('xf');const h=xf&&xf.h;if(h==='right'||(!h||h==='general')&&d.n)k.push('xn');if(xf&&xf.wrap)k.push('xw');
     let st='';if(h==='center'||h==='centerContinuous'||(!h&&d.center))st+='text-align:center;';else if(h==='left')st+='text-align:left;';
@@ -4365,7 +4641,7 @@ const XL=(()=>{
     for(let r=1;r<=R;r++){const row=sh.rows.get(r);const hid=row&&/^(1|true)$/.test(row.getAttribute('hidden')||'');const ht=row&&row.getAttribute('ht')?Math.round(+row.getAttribute('ht')*4/3):0;
       h+=`<tr${hid?' hidden':''}${ht?` style="height:${ht}px"`:''}><th data-hr="${r}">${r}</th>`;
       for(let c=1;c<=C;c++){const k=r+':'+c;let span='';if(cover.has(k)){const m=cover.get(k);if(!m)continue;span=` colspan="${Math.min(m.c2,C)-m.c1+1}" rowspan="${Math.min(m.r2,R)-m.r1+1}"`}
-        const el=sh.cells.get(k),d=display(sh,el),s=cls(sh,el,d);h+=`<td data-r="${r}" data-c="${c}"${span}${s.k?` class="${s.k}"`:''}${s.st?` style="${s.st}"`:''}>${esc(d.t)}</td>`}
+        const el=sh.cells.get(k),d=display(sh,el),s=cls(sh,el,d);h+=`<td data-r="${r}" data-c="${c}"${el&&kid(el,'f')?' data-f':''}${span}${s.k?` class="${s.k}"`:''}${s.st?` style="${s.st}"`:''}>${esc(d.t)}</td>`}
       h+=`</tr>`}
     $('#xlTbl').innerHTML=h+`</tbody></table>`;
     if(sh.maxR>MAXR||sh.maxC>MAXC)toast(`表示は${MAXR}行・${colName(MAXC)}列までです`);
@@ -4379,9 +4655,12 @@ const XL=(()=>{
     if(td){td.classList.add('sel');const g=grid(),hd=44,top=g.querySelector('thead').offsetHeight;
       if(td.offsetLeft-hd<g.scrollLeft)g.scrollLeft=td.offsetLeft-hd;else if(td.offsetLeft+td.offsetWidth>g.scrollLeft+g.clientWidth)g.scrollLeft=td.offsetLeft+td.offsetWidth-g.clientWidth;
       if(td.offsetTop-top<g.scrollTop)g.scrollTop=td.offsetTop-top;else if(td.offsetTop+td.offsetHeight>g.scrollTop+g.clientHeight)g.scrollTop=td.offsetTop+td.offsetHeight-g.clientHeight}
+    grid().querySelectorAll('.rg').forEach(e=>e.classList.remove('rg'));const G=selRange();if(G.r1!==G.r2||G.c1!==G.c2)for(let r=G.r1;r<=G.r2;r++)for(let c=G.c1;c<=G.c2;c++){const t=tdAt(r,c);if(t)t.classList.add('rg')}
     const a=grid().querySelector(`th[data-hc="${X.sel.c}"]`),b=grid().querySelector(`th[data-hr="${X.sel.r}"]`);if(a)a.classList.add('hl');if(b)b.classList.add('hl');
     $('#xlRef').value=ref(X.sel.r,X.sel.c);const v=editText(sh,sh.cells.get(X.sel.r+':'+X.sel.c));$('#xlIn').value=v;$('#xlIn').dataset.orig=v;ed.value='';setMode('ready');placeEd()}
-  function move(dr,dc){const sh=X.sheets[X.cur];if(!sh)return;let{r,c}=X.sel;const m=mergeAt(sh,r,c);if(m){if(dr>0)r=m.r2;if(dc>0)c=m.c2}
+  function selRange(){const a=X.sel,b=X.rend||X.sel;return{r1:Math.min(a.r,b.r),c1:Math.min(a.c,b.c),r2:Math.max(a.r,b.r),c2:Math.max(a.c,b.c)}}
+  function extend(dr,dc){const sh=X.sheets[X.cur];if(!sh)return;const b=X.rend||{...X.sel};X.rend={r:clamp(b.r+dr,1,sh.R),c:clamp(b.c+dc,1,sh.C)};markSel()}
+  function move(dr,dc){X.rend=null;const sh=X.sheets[X.cur];if(!sh)return;let{r,c}=X.sel;const m=mergeAt(sh,r,c);if(m){if(dr>0)r=m.r2;if(dc>0)c=m.c2}
     r=clamp(r+dr,1,sh.R);c=clamp(c+dc,1,sh.C);X.sel={r,c};markSel()}
   const ed=$('#xlCell'),inp=$('#xlIn');let mode='ready',composing=false;
   function setMode(m){mode=m;ed.classList.toggle('on',m!=='ready');if(m==='ready')ed.style.width=ed.style.minWidth}
@@ -4390,7 +4669,8 @@ const XL=(()=>{
   function focusEd(){if(!$('#xl').hidden&&X.sheets.length&&!ed.hidden)ed.focus({preventScroll:true})}
   function commitInput(){const sh=X.sheets[X.cur];if(!sh||inp.disabled)return false;const v=inp.value;setMode('ready');ed.value='';if(v===inp.dataset.orig)return false;
     const{r,c}=X.sel;const was=sh.cells.get(r+':'+c);const hadShared=was&&kid(was,'f')&&kid(was,'f').hasAttribute('ref');
-    setCell(sh,r,c,v);inp.dataset.orig=v;if(hadShared){render();return true}refreshCell(r,c);return true}
+    setCell(sh,r,c,v);inp.dataset.orig=v;if(hadShared){render();return true}refreshCell(r,c);refreshF();return true}
+  function refreshF(){grid().querySelectorAll('td[data-f]').forEach(td=>refreshCell(+td.dataset.r,+td.dataset.c))}
   function cancelInput(){inp.value=inp.dataset.orig||'';ed.value='';setMode('ready')}
   function startEdit(){ed.value=inp.value;setMode('edit');ed.style.width=Math.max(parseFloat(ed.style.minWidth)||0,ed.scrollWidth)+'px';ed.focus({preventScroll:true});ed.setSelectionRange(ed.value.length,ed.value.length)}
   function tabs(){$('#xlTabs').innerHTML=X.sheets.map((s,i)=>s.hidden?'':`<button data-i="${i}" class="${i===X.cur?'on':''}${s.dirty?' dirty':''}">${esc(s.name)}</button>`).join('')}
@@ -4406,7 +4686,7 @@ const XL=(()=>{
   $('#xlUndo').onclick=()=>stepHist(X.undo,X.redo);
   $('#xlRedo').onclick=()=>stepHist(X.redo,X.undo);
   $('#xlTabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)showSheet(+b.dataset.i).then(focusEd)});
-  grid().addEventListener('pointerdown',e=>{const td=e.target.closest('td');if(!td){if(e.target===ed)return;return}e.preventDefault();commitInput();X.sel={r:+td.dataset.r,c:+td.dataset.c};markSel();focusEd()});
+  grid().addEventListener('pointerdown',e=>{const td=e.target.closest('td');if(!td){if(e.target===ed)return;return}e.preventDefault();commitInput();const p={r:+td.dataset.r,c:+td.dataset.c};if(e.shiftKey)X.rend=p;else{X.sel=p;X.rend=null}markSel();focusEd()});
   grid().addEventListener('dblclick',e=>{if(e.target===ed&&mode==='ready'||e.target.closest('td'))startEdit()});
   grid().addEventListener('dragover',e=>e.preventDefault());
   grid().addEventListener('drop',e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f&&/\.xlsx$/i.test(f.name))openFile(f)});
@@ -4434,13 +4714,33 @@ const XL=(()=>{
     if(mod&&k==='z'){e.preventDefault();e.shiftKey?stepHist(X.redo,X.undo):stepHist(X.undo,X.redo);return}
     if(mod&&k==='y'){e.preventDefault();stepHist(X.redo,X.undo);return}
     const mv={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1],Enter:[e.shiftKey?-1:1,0],Tab:[0,e.shiftKey?-1:1]}[e.key];
+    if(mv&&!mod&&e.shiftKey&&e.key.startsWith('Arrow')){e.preventDefault();extend(...mv);focusEd();return}
     if(mv&&!mod){e.preventDefault();move(...mv);focusEd();return}
     if(e.key==='F2'){e.preventDefault();startEdit();return}
     if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();inp.value='';commitInput();markSel();return}
     if(a!==ed)focusEd();
   },true);
-  return{X,open,openFile,save,show,setCell:(r,c,t)=>{const sh=X.sheets[X.cur];setCell(sh,r,c,t);refreshCell(r,c);markSel()},shiftF};
+  /* ----- 書類への差し込み用スナップショット ----- */
+  function usedRange(sh){let r1=1e9,c1=1e9,r2=0,c2=0;for(const[k,el]of sh.cells){const d=display(sh,el);if(d.t==='')continue;const[r,c]=k.split(':').map(Number);r1=Math.min(r1,r);c1=Math.min(c1,c);r2=Math.max(r2,r);c2=Math.max(c2,c)}
+    return r2?{r1,c1,r2,c2}:{r1:1,c1:1,r2:1,c2:1}}
+  const rgStr=g=>ref(g.r1,g.c1)+(g.r1===g.r2&&g.c1===g.c2?'':':'+ref(g.r2,g.c2));
+  function parseRange(s){const[a,b]=String(s||'').toUpperCase().replace(/\s|\$/g,'').split(':');const p=parseRef(a),q=parseRef(b||a);if(!p||!q)return null;return{r1:Math.min(p.r,q.r),c1:Math.min(p.c,q.c),r2:Math.max(p.r,q.r),c2:Math.max(p.c,q.c)}}
+  async function snap(sheetName,range){
+    if(!X.file)return null;const sh=X.sheets.find(s=>s.name===sheetName);if(!sh)return null;for(const s of X.sheets)await load(s);EV.clear();
+    const g=parseRange(range);if(!g||(g.r2-g.r1+1)*(g.c2-g.c1+1)>4000)return null;
+    const rowHid=r=>{const row=sh.rows.get(r);return row&&/^(1|true)$/.test(row.getAttribute('hidden')||'')};
+    const R=[],C=[];for(let r=g.r1;r<=g.r2;r++)if(!rowHid(r))R.push(r);for(let c=g.c1;c<=g.c2;c++)if(colPx(sh,c)>0)C.push(c);
+    const cw=C.map(c=>colPx(sh,c)),rh=R.map(r=>{const row=sh.rows.get(r);return row&&row.getAttribute('ht')?+row.getAttribute('ht'):sh.defH});
+    const cells=R.map(r=>C.map(c=>{const m=mergeAt(sh,r,c);if(m&&(m.r1!==r||m.c1!==c))return{skip:1};
+      const el=sh.cells.get(r+':'+c),d=display(sh,el),xf=el?X.xfs[+(el.getAttribute('s')||0)]:null,fo=xf?X.fonts[xf.fontId]:null,h=xf&&xf.h;
+      const o={t:d.t};if(d.n&&!d.center&&(!h||h==='general'))o.a='r';if(h==='right')o.a='r';if(h==='center'||h==='centerContinuous'||(!h&&d.center))o.a='c';if(fo&&fo.b)o.b=1;
+      if(m){const cs=C.filter(x=>x>=m.c1&&x<=Math.min(m.c2,g.c2)).length,rs=R.filter(x=>x>=m.r1&&x<=Math.min(m.r2,g.r2)).length;if(cs>1)o.cs=cs;if(rs>1)o.rs=rs}
+      return o}));
+    return{cells,cw,rh}}
+  function curSel(){const sh=X.sheets[X.cur];if(!sh)return null;const G=selRange();return{sheet:sh.name,range:rgStr(G.r1===G.r2&&G.c1===G.c2?usedRange(sh):G)}}
+  return{X,open,openFile,save,show,snap,curSel,usedRange,book:()=>X.file&&X.file.name,sheetNames:()=>X.sheets.map(s=>s.name),setCell:(r,c,t)=>{const sh=X.sheets[X.cur];setCell(sh,r,c,t);refreshCell(r,c);markSel()},shiftF};
 })();
 $('#bXl').onclick=()=>XL.show(true);
+$('#xlIns').onclick=()=>tblInsertDialog();
 window.__thinbook.XL=XL;
 </script>
